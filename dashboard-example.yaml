@@ -1,0 +1,44 @@
+title: Device Health
+views:
+  - title: Device Health
+    path: device-health
+    icon: mdi:alert-circle-outline
+    cards:
+      - type: custom:offline-device-panel
+        title: Device Health
+        show_online: true
+        display_mode: detailed
+        offline_states:
+          - unavailable
+          - unknown
+
+  - title: Lights and Covers
+    path: lights-covers-health
+    icon: mdi:home-alert-outline
+    cards:
+      - type: custom:offline-device-panel
+        title: Lights and Covers Health
+        show_online: true
+        display_mode: simple
+        domains:
+          - light
+          - cover
+        offline_states:
+          - unavailable
+          - unknown
+
+  - title: Area Focus
+    path: area-device-health
+    icon: mdi:floor-plan
+    cards:
+      - type: custom:offline-device-panel
+        title: Selected Areas
+        show_online: true
+        display_mode: detailed
+        areas:
+          - Living Room
+          - Kitchen
+          - Bedroom
+        offline_states:
+          - unavailable
+          - unknown
