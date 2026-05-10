@@ -14,7 +14,7 @@ The card:
 ## Install with HACS
 
 1. In HACS, open the three-dot menu and select **Custom repositories**.
-2. Add `https://github.com/Hollako/Home-Assistant-Device-Panel`.
+2. Add `https://github.com/Hollako/Home-Assistant-Offline-Device-Panel`.
 3. Select **Dashboard** as the category.
 4. Download **Offline Device Panel**.
 5. In Home Assistant, go to **Settings > Dashboards > Resources**.
