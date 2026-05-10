@@ -19,14 +19,7 @@ class OfflineDevicePanel extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._config = {};
-    this._filters = {
-      status: "offline",
-      displayMode: "detailed",
-      domains: [],
-      integrations: [],
-      areas: [],
-      search: "",
-    };
+    this._filters = this._defaultFilters();
     this._openMulti = null;
     this._registriesLoaded = false;
     this._entities = [];
@@ -45,10 +38,13 @@ class OfflineDevicePanel extends HTMLElement {
       domains: [],
       integrations: [],
       areas: [],
+      persist_filters: true,
       ...config,
     };
-    if (this._config.show_online === false) this._filters.status = "offline";
-    this._filters.displayMode = this._config.display_mode === "simple" ? "simple" : "detailed";
+    this._filters = this._normalizedFilters({
+      ...this._defaultFilters(),
+      ...this._loadFilters(),
+    });
     this._render();
   }
 
@@ -60,6 +56,60 @@ class OfflineDevicePanel extends HTMLElement {
 
   getCardSize() {
     return 6;
+  }
+
+  _defaultFilters() {
+    return {
+      status: "offline",
+      displayMode: this._config?.display_mode === "simple" ? "simple" : "detailed",
+      domains: [],
+      integrations: [],
+      areas: [],
+      search: "",
+    };
+  }
+
+  _storageKey() {
+    const path = window.location?.pathname || "dashboard";
+    const cardKey = this._config.storage_key || this._config.title || "offline-device-panel";
+    return `offline-device-panel:filters:${path}:${cardKey}`;
+  }
+
+  _loadFilters() {
+    if (this._config.persist_filters === false) return {};
+
+    try {
+      const value = localStorage.getItem(this._storageKey());
+      return value ? JSON.parse(value) : {};
+    } catch (error) {
+      console.warn("offline-device-panel: saved filters could not be loaded", error);
+      return {};
+    }
+  }
+
+  _saveFilters() {
+    if (this._config.persist_filters === false) return;
+
+    try {
+      localStorage.setItem(this._storageKey(), JSON.stringify(this._normalizedFilters(this._filters)));
+    } catch (error) {
+      console.warn("offline-device-panel: filters could not be saved", error);
+    }
+  }
+
+  _normalizedFilters(filters) {
+    const status = ["offline", "online", "all"].includes(filters.status) ? filters.status : "offline";
+    const displayMode = filters.displayMode === "simple" ? "simple" : "detailed";
+    const arrayOrEmpty = (value) => (Array.isArray(value) ? value.filter(Boolean) : []);
+
+    return {
+      status: this._config.show_online === false && status !== "offline" ? "offline" : status,
+      displayMode,
+      domains: arrayOrEmpty(filters.domains),
+      integrations: arrayOrEmpty(filters.integrations),
+      areas: arrayOrEmpty(filters.areas),
+      search: typeof filters.search === "string" ? filters.search : "",
+    };
   }
 
   async _loadRegistries(hass) {
@@ -262,6 +312,7 @@ class OfflineDevicePanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-filter]").forEach((element) => {
       element.addEventListener("input", (event) => {
         this._filters[event.target.dataset.filter] = event.target.value;
+        this._saveFilters();
         this._render({ preserveScroll: true });
       });
     });
@@ -275,6 +326,7 @@ class OfflineDevicePanel extends HTMLElement {
         if (event.target.checked) selected.add(value);
         else selected.delete(value);
         this._filters[key] = [...selected].sort((a, b) => a.localeCompare(b));
+        this._saveFilters();
         this._render({ preserveScroll: true });
       });
     });
@@ -285,6 +337,7 @@ class OfflineDevicePanel extends HTMLElement {
         const key = event.currentTarget.dataset.clearMulti;
         this._openMulti = key;
         this._filters[key] = [];
+        this._saveFilters();
         this._render({ preserveScroll: true });
       });
     });

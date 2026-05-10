@@ -97,6 +97,26 @@ offline_states:
   - unknown
 ```
 
+## Persistent Filters
+
+Dashboard filter selections are saved in the browser and restored after page refreshes.
+
+If you use multiple copies of the card with the same title on the same dashboard, set a unique `storage_key` for each one:
+
+```yaml
+type: custom:offline-device-panel
+title: Lighting Health
+storage_key: lighting-health
+```
+
+To always reset filters when the page loads, disable persistence:
+
+```yaml
+type: custom:offline-device-panel
+title: Offline Devices
+persist_filters: false
+```
+
 ## Simple Cards
 
 Use `display_mode: simple` when you want compact cards with less detail.
