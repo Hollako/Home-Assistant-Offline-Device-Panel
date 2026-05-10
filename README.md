@@ -11,7 +11,33 @@ The card:
 - Switches between detailed cards and simple cards from the dashboard.
 - Opens the normal Home Assistant more-info dialog when a device card is clicked.
 
-## Install
+## Install with HACS
+
+1. In HACS, open the three-dot menu and select **Custom repositories**.
+2. Add `https://github.com/Hollako/Home-Assistant-Device-Panel`.
+3. Select **Dashboard** as the category.
+4. Download **Offline Device Panel**.
+5. In Home Assistant, go to **Settings > Dashboards > Resources**.
+6. Add this resource:
+
+```yaml
+url: /hacsfiles/Home-Assistant-Device-Panel/offline-device-panel.js
+type: module
+```
+
+7. Add a manual Lovelace card:
+
+```yaml
+type: custom:offline-device-panel
+title: Offline Devices
+show_online: true
+display_mode: detailed
+offline_states:
+  - unavailable
+  - unknown
+```
+
+## Manual Install
 
 1. Copy `offline-device-panel.js` to your Home Assistant `config/www/` folder.
 2. In Home Assistant, go to **Settings > Dashboards > Resources**.
