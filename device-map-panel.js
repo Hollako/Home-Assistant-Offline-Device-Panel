@@ -468,6 +468,7 @@ class DeviceMapPanel extends HTMLElement {
           }
           <main>
             <div class="map-toolbar">
+              <div class="toolbar-title">${this._escape(this._config.title)}</div>
               <div class="zoom-controls" aria-label="Map zoom">
                 <button type="button" data-zoom="out" title="Zoom out">-</button>
                 <span>${Math.round(this._zoom * 100)}%</span>
@@ -499,7 +500,7 @@ class DeviceMapPanel extends HTMLElement {
               this._config.image
                 ? `
             <div class="map ${isEditing ? "editable" : ""} ${this._zoom < 1 ? "zoomed-out" : ""}" data-map>
-              <div class="map-content" style="width: ${this._escape(this._zoom * 100)}%; min-height: ${this._escape(this._zoom * 100)}%;">
+              <div class="map-content" style="width: ${this._escape(this._zoom * 100)}%;">
                 <img src="${this._escape(this._config.image)}" alt="" />
                 <div class="image-error">Image could not be loaded: ${this._escape(this._config.image)}</div>
                 ${placedRows.map((row) => this._markerTemplate(row, isEditing)).join("")}
@@ -532,7 +533,7 @@ class DeviceMapPanel extends HTMLElement {
       element.addEventListener("click", (event) => {
         const action = event.currentTarget.dataset.zoom;
         if (action === "reset") this._zoom = 1;
-        if (action === "in") this._zoom = Math.min(3, Math.round((this._zoom + 0.1) * 10) / 10);
+        if (action === "in") this._zoom = Math.min(4, Math.round((this._zoom + 0.1) * 10) / 10);
         if (action === "out") this._zoom = Math.max(0.5, Math.round((this._zoom - 0.1) * 10) / 10);
         this._render();
       });
@@ -853,7 +854,6 @@ class DeviceMapPanel extends HTMLElement {
         .panel {
           display: grid;
           grid-template-columns: minmax(260px, 330px) 1fr;
-          min-height: 720px;
         }
 
         .panel.viewing {
@@ -1060,7 +1060,7 @@ class DeviceMapPanel extends HTMLElement {
           z-index: 4;
           top: 12px;
           display: grid;
-          grid-template-columns: auto minmax(220px, 1fr) auto;
+          grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto;
           flex-wrap: wrap;
           align-items: center;
           gap: 10px;
@@ -1072,6 +1072,17 @@ class DeviceMapPanel extends HTMLElement {
           background: var(--card-background-color, #fff);
           box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
           padding: 4px;
+        }
+
+        .toolbar-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--primary-text-color);
+          font-size: 14px;
+          font-weight: 800;
+          padding: 0 10px;
         }
 
         .mode-switch {
@@ -1169,8 +1180,7 @@ class DeviceMapPanel extends HTMLElement {
         .map {
           position: relative;
           width: 100%;
-          height: clamp(680px, 82vh, 1100px);
-          min-height: 680px;
+          max-height: clamp(520px, 82vh, 1100px);
           overflow: auto;
           border: 1px solid var(--dmp-border);
           border-radius: 8px;
@@ -1201,7 +1211,6 @@ class DeviceMapPanel extends HTMLElement {
         .map img {
           display: block;
           width: 100%;
-          min-height: inherit;
           height: auto;
           object-fit: contain;
           pointer-events: none;
@@ -1239,7 +1248,7 @@ class DeviceMapPanel extends HTMLElement {
           cursor: grab;
           font: inherit;
           padding: 5px 8px 5px 5px;
-          transform: translate(-50%, -50%);
+          transform: translate(calc(var(--marker-size) / -2 - 5px), -50%);
         }
 
         .marker.icon-only {

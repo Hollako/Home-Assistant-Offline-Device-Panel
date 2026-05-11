@@ -14,25 +14,18 @@ The card:
 ## Install with HACS
 
 1. In HACS, open the three-dot menu and select **Custom repositories**.
-2. Add `https://github.com/Hollako/Home-Assistant-Offline-Device-Panel`.
+2. Add `https://github.com/Hollako/Home-Assistant-Device-Panel`.
 3. Select **Dashboard** as the category.
 4. Download **Offline Device Panel**.
 5. In Home Assistant, go to **Settings > Dashboards > Resources**.
 6. Add this resource:
 
 ```yaml
-url: /hacsfiles/Home-Assistant-Device-Panel/offline-device-panel.js
+url: /hacsfiles/Home-Assistant-Device-Panel/Home-Assistant-Device-Panel.js
 type: module
 ```
 
-7. Optional: add the drawing/map panel resource too:
-
-```yaml
-url: /hacsfiles/Home-Assistant-Device-Panel/device-map-panel.js
-type: module
-```
-
-8. Add a manual Lovelace card:
+7. Add a manual Lovelace card:
 
 ```yaml
 type: custom:offline-device-panel
@@ -46,17 +39,12 @@ offline_states:
 
 ## Manual Install
 
-1. Copy `offline-device-panel.js` and/or `device-map-panel.js` to your Home Assistant `config/www/` folder.
+1. Copy `Home-Assistant-Device-Panel.js`, `device-card-list-panel.js`, and `device-map-panel.js` to your Home Assistant `config/www/` folder.
 2. In Home Assistant, go to **Settings > Dashboards > Resources**.
 3. Add the resources you want to use:
 
 ```yaml
-url: /local/offline-device-panel.js
-type: module
-```
-
-```yaml
-url: /local/device-map-panel.js
+url: /local/Home-Assistant-Device-Panel.js
 type: module
 ```
 
@@ -89,7 +77,7 @@ The card shows a sidebar with all devices. Filter the list, then drag devices fr
 
 The map opens in **User Mode** by default, which shows only the drawing and device markers. Home Assistant admin users can switch to **Edit Mode** to see the sidebar, filters, drag-and-drop tools, remove buttons, and YAML export. Non-admin Home Assistant users cannot enter Edit Mode.
 
-Use the map zoom controls to zoom from 50% to 300%. The drawing and markers scale together, and marker positions stay aligned while zoomed.
+Use the map zoom controls to zoom from 50% to 400%. The drawing and markers scale together, and marker positions stay aligned while zoomed.
 
 Markers automatically choose icons from the device/entity type when possible, such as bulbs for lights and motion icons for motion sensors. In Edit Mode, placed devices also show an icon picker in the sidebar so admins can override the marker icon.
 
