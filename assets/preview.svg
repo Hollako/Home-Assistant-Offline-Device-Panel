@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Home Assistant Device Panel preview</title>
+  <desc id="desc">Preview showing a device map with online and offline markers and a device status panel.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#123242"/>
+      <stop offset="0.55" stop-color="#241b32"/>
+      <stop offset="1" stop-color="#14323a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect x="64" y="58" width="1152" height="604" rx="18" fill="#f8fafc" filter="url(#shadow)"/>
+  <rect x="92" y="92" width="110" height="110" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="202" y="92" width="180" height="110" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="382" y="92" width="260" height="110" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="642" y="92" width="240" height="110" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="882" y="92" width="306" height="110" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="92" y="202" width="290" height="170" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="382" y="202" width="500" height="170" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="882" y="202" width="306" height="170" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="92" y="372" width="290" height="250" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="382" y="372" width="500" height="250" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <rect x="882" y="372" width="306" height="250" fill="#fff" stroke="#b9c2c9" stroke-width="4"/>
+  <path d="M92 344H1188" stroke="#2783ff" stroke-width="8" stroke-dasharray="18 10" opacity="0.55"/>
+  <path d="M236 130V552H1040" stroke="#e879f9" stroke-width="5" stroke-dasharray="16 10" fill="none" opacity="0.8"/>
+  <g font-family="Arial, sans-serif" font-size="22" font-weight="700">
+    <text x="122" y="154" fill="#94a3b8">Office</text>
+    <text x="466" y="288" fill="#94a3b8">Open Work Space</text>
+    <text x="982" y="486" fill="#94a3b8">Server Room</text>
+  </g>
+  <g>
+    <circle cx="292" cy="286" r="23" fill="#fff" stroke="#334155" stroke-width="5"/>
+    <circle cx="292" cy="286" r="15" fill="#1d8f5f"/>
+    <path d="M286 286h12M292 280v12" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="748" cy="154" r="23" fill="#fff" stroke="#334155" stroke-width="5"/>
+    <circle cx="748" cy="154" r="15" fill="#d43636"/>
+    <path d="M741 154h14" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="1012" cy="462" r="23" fill="#fff" stroke="#334155" stroke-width="5"/>
+    <circle cx="1012" cy="462" r="15" fill="#1d8f5f"/>
+    <path d="M1005 462h14M1012 455v14" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <rect x="760" y="520" width="372" height="78" rx="10" fill="#111827" opacity="0.92"/>
+  <circle cx="802" cy="558" r="15" fill="#1d8f5f"/>
+  <circle cx="802" cy="558" r="8" fill="#fff"/>
+  <text x="830" y="552" fill="#fff" font-family="Arial, sans-serif" font-size="19" font-weight="700">Device Map Panel</text>
+  <text x="830" y="578" fill="#cbd5e1" font-family="Arial, sans-serif" font-size="15">Drag, zoom, pan, and monitor devices</text>
+</svg>
