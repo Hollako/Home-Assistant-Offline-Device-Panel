@@ -1,4 +1,4 @@
-# Home Assistant Offline Device Panel
+# Home Assistant Device Panel
 
 A Lovelace custom card for a clear Home Assistant dashboard view of offline devices.
 
@@ -16,7 +16,7 @@ The card:
 1. In HACS, open the three-dot menu and select **Custom repositories**.
 2. Add `https://github.com/Hollako/Home-Assistant-Device-Panel`.
 3. Select **Dashboard** as the category.
-4. Download **Offline Device Panel**.
+4. Download **Home Assistant Device Panel**.
 5. In Home Assistant, go to **Settings > Dashboards > Resources**.
 6. Add this resource:
 
