@@ -79,11 +79,28 @@ The card shows a sidebar with all devices. Filter the list, then drag devices fr
 
 The map opens in **User Mode** by default, which shows only the drawing and device markers. Home Assistant admin users can switch to **Edit Mode** to see the sidebar, filters, drag-and-drop tools, remove buttons, and YAML export. Non-admin Home Assistant users cannot enter Edit Mode.
 
+In Edit Mode, click a marker to select it, or Ctrl-click/Cmd-click multiple markers to build a selection. Use the alignment buttons to align the selected markers left, right, top, or bottom. Use **Space H** or **Space V** to distribute three or more selected markers evenly between the outer markers. Hold Ctrl/Cmd while dragging one selected marker to move the selected group together.
+
+Hold Shift and drag on empty map space to draw a selection box around multiple markers. Hold Ctrl/Cmd with Shift-drag to add markers to the current selection.
+
+Press Delete or Backspace in Edit Mode to remove the selected markers.
+
+Use **Scatter visible unplaced** in Edit Mode to automatically place the currently filtered unplaced devices across the floor plan before manually rearranging them.
+
 Use the map zoom controls to zoom from 50% to 400%. The drawing and markers scale together, and marker positions stay aligned while zoomed.
 
 Markers automatically choose icons from the device/entity type when possible, such as bulbs for lights and motion icons for motion sensors. In Edit Mode, placed devices also show an icon picker in the sidebar so admins can override the marker icon.
 
 Use the display controls on the map to make markers smaller or larger and to show or hide marker names. When marker names are hidden, hovering over a marker still shows the device name. When zoomed in, drag the map background to pan around the floor plan.
+
+By default, marker color shows availability only: green for online and red for offline. To also show entity state, enable `show_entity_state`. In that mode, the marker glow/ring still shows availability, while the inside color shows state: yellow for active/on/detected, black for inactive/off/clear, and full red when offline.
+
+```yaml
+type: custom:device-map-panel
+title: Device Map
+image: /local/floorplan.png
+show_entity_state: true
+```
 
 Marker positions are saved in the browser automatically. Open **Export YAML** to copy the current marker layout into your dashboard configuration:
 

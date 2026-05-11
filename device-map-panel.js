@@ -40,7 +40,13 @@ class DeviceMapPanel extends HTMLElement {
       left: 0,
       top: 0,
     };
+    this._deviceListScrollTop = 0;
     this._isPanning = false;
+    this._selectedMarkers = new Set();
+    this._dragMarkerKey = null;
+    this._selectionBox = null;
+    this._selectionBoxElement = null;
+    this._boundKeydown = (event) => this._handleKeydown(event);
   }
 
   setConfig(config) {
@@ -56,6 +62,7 @@ class DeviceMapPanel extends HTMLElement {
       storage_key: "",
       marker_size: 18,
       show_labels: true,
+      show_entity_state: false,
       ...config,
     };
     this._display = this._normalizedDisplay({
@@ -81,6 +88,14 @@ class DeviceMapPanel extends HTMLElement {
     return 8;
   }
 
+  connectedCallback() {
+    window.addEventListener("keydown", this._boundKeydown);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener("keydown", this._boundKeydown);
+  }
+
   _canEdit() {
     return this._hass?.user?.is_admin === true;
   }
@@ -88,6 +103,22 @@ class DeviceMapPanel extends HTMLElement {
   _isControlActive() {
     const active = this.shadowRoot?.activeElement;
     return this._isPanning || ["INPUT", "SELECT", "TEXTAREA"].includes(active?.tagName);
+  }
+
+  _handleKeydown(event) {
+    if (!(this._canEdit() && this._mode === "edit")) return;
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    const active = this.shadowRoot?.activeElement || document.activeElement;
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(active?.tagName)) return;
+    if (!this._selectedMarkers.size) return;
+
+    event.preventDefault();
+    for (const key of this._selectedMarkers) {
+      delete this._markers[key];
+    }
+    this._selectedMarkers.clear();
+    this._saveMarkers();
+    this._render();
   }
 
   async _loadRegistries(hass) {
@@ -144,6 +175,9 @@ class DeviceMapPanel extends HTMLElement {
           states: new Set(),
           icons: new Set(),
           deviceClasses: new Set(),
+          primaryState: stateObj.state,
+          primaryDomain: domain,
+          primaryDeviceClass: stateObj.attributes?.device_class || "",
           offlineEntities: [],
           entityCount: 0,
           areaId,
@@ -169,6 +203,12 @@ class DeviceMapPanel extends HTMLElement {
       }
       if (isOffline || !row.lastChanged || new Date(stateObj.last_changed) > new Date(row.lastChanged)) {
         row.lastChanged = stateObj.last_changed;
+      }
+
+      if (row.entityId === entityId || isOffline || (!row.offline && row.primaryState == null)) {
+        row.primaryState = stateObj.state;
+        row.primaryDomain = domain;
+        row.primaryDeviceClass = stateObj.attributes?.device_class || "";
       }
     }
 
@@ -203,6 +243,19 @@ class DeviceMapPanel extends HTMLElement {
 
   _isOffline(state) {
     return this._config.offline_states.includes(String(state).toLowerCase());
+  }
+
+  _stateClass(row) {
+    if (!this._config.show_entity_state) return "";
+    const state = String(row.primaryState || "").toLowerCase();
+    const activeStates = ["on", "open", "opening", "unlocked", "detected", "motion", "home", "playing", "heat", "cool"];
+    const inactiveStates = ["off", "closed", "closing", "locked", "clear", "none", "not_home", "idle", "standby"];
+
+    if (activeStates.includes(state)) return "state-active";
+    if (inactiveStates.includes(state)) return "state-inactive";
+    if (row.primaryDomain === "binary_sensor") return state === "on" ? "state-active" : "state-inactive";
+    if (row.primaryDomain === "light" || row.primaryDomain === "switch") return state === "on" ? "state-active" : "state-inactive";
+    return "state-neutral";
   }
 
   _iconOptions() {
@@ -414,6 +467,7 @@ class DeviceMapPanel extends HTMLElement {
     if (!this.shadowRoot) return;
 
     this._captureMapScroll();
+    this._captureDeviceListScroll();
 
     const rows = this._deviceRows();
     const filteredRows = this._filteredRows(rows);
@@ -455,6 +509,9 @@ class DeviceMapPanel extends HTMLElement {
                 <input data-filter="search" value="${this._escape(this._filters.search)}" placeholder="Device, entity, area..." />
               </label>
             </section>
+            <section class="bulk-actions">
+              <button type="button" data-auto-place="filtered">Scatter visible unplaced</button>
+            </section>
             <section class="devices">
               ${filteredRows.map((row) => this._deviceListItem(row)).join("") || `<div class="empty-list">No devices match</div>`}
             </section>
@@ -488,6 +545,28 @@ class DeviceMapPanel extends HTMLElement {
               ${
                 canEdit
                   ? `
+              <div class="align-controls" aria-label="Marker alignment">
+                <span>${this._selectedMarkers.size} selected</span>
+                <button type="button" class="tool-icon" data-align="left" title="Align selected left" aria-label="Align selected left" ${this._selectedMarkers.size < 2 ? "disabled" : ""}>
+                  <span class="align-icon align-left"></span>
+                </button>
+                <button type="button" class="tool-icon" data-align="right" title="Align selected right" aria-label="Align selected right" ${this._selectedMarkers.size < 2 ? "disabled" : ""}>
+                  <span class="align-icon align-right"></span>
+                </button>
+                <button type="button" class="tool-icon" data-align="top" title="Align selected top" aria-label="Align selected top" ${this._selectedMarkers.size < 2 ? "disabled" : ""}>
+                  <span class="align-icon align-top"></span>
+                </button>
+                <button type="button" class="tool-icon" data-align="bottom" title="Align selected bottom" aria-label="Align selected bottom" ${this._selectedMarkers.size < 2 ? "disabled" : ""}>
+                  <span class="align-icon align-bottom"></span>
+                </button>
+                <button type="button" class="tool-icon" data-distribute="horizontal" title="Distribute selected evenly left to right" aria-label="Distribute selected horizontally" ${this._selectedMarkers.size < 3 ? "disabled" : ""}>
+                  <span class="align-icon distribute-horizontal"></span>
+                </button>
+                <button type="button" class="tool-icon" data-distribute="vertical" title="Distribute selected evenly top to bottom" aria-label="Distribute selected vertically" ${this._selectedMarkers.size < 3 ? "disabled" : ""}>
+                  <span class="align-icon distribute-vertical"></span>
+                </button>
+                <button type="button" data-clear-selection title="Clear selection" ${this._selectedMarkers.size ? "" : "disabled"}>Clear</button>
+              </div>
               <div class="mode-switch" aria-label="Map mode">
                 <button type="button" data-mode="user" class="${!isEditing ? "active" : ""}">User Mode</button>
                 <button type="button" data-mode="edit" class="${isEditing ? "active" : ""}">Edit Mode</button>
@@ -504,6 +583,7 @@ class DeviceMapPanel extends HTMLElement {
                 <img src="${this._escape(this._config.image)}" alt="" />
                 <div class="image-error">Image could not be loaded: ${this._escape(this._config.image)}</div>
                 ${placedRows.map((row) => this._markerTemplate(row, isEditing)).join("")}
+                ${isEditing && this._selectionBox ? this._selectionBoxTemplate() : ""}
               </div>
             </div>
             `
@@ -516,7 +596,10 @@ class DeviceMapPanel extends HTMLElement {
     `;
 
     this._attachEvents();
-    requestAnimationFrame(() => this._restoreMapScroll());
+    requestAnimationFrame(() => {
+      this._restoreMapScroll();
+      this._restoreDeviceListScroll();
+    });
   }
 
   _attachEvents() {
@@ -525,6 +608,7 @@ class DeviceMapPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-mode]").forEach((element) => {
       element.addEventListener("click", (event) => {
         this._mode = event.currentTarget.dataset.mode === "edit" ? "edit" : "user";
+        if (this._mode !== "edit") this._selectedMarkers.clear();
         this._render();
       });
     });
@@ -565,6 +649,11 @@ class DeviceMapPanel extends HTMLElement {
       this._attachPanEvents(map);
     }
 
+    const deviceList = this.shadowRoot.querySelector(".devices");
+    if (deviceList) {
+      deviceList.addEventListener("scroll", () => this._captureDeviceListScroll());
+    }
+
     if (!isEditing) {
       this.shadowRoot.querySelectorAll("[data-marker]").forEach((element) => {
         element.addEventListener("click", (event) => {
@@ -595,7 +684,9 @@ class DeviceMapPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-remove]").forEach((element) => {
       element.addEventListener("click", (event) => {
         event.stopPropagation();
-        delete this._markers[event.currentTarget.dataset.remove];
+        const key = event.currentTarget.dataset.remove;
+        delete this._markers[key];
+        this._selectedMarkers.delete(key);
         this._saveMarkers();
         this._render();
       });
@@ -618,12 +709,58 @@ class DeviceMapPanel extends HTMLElement {
       });
     });
 
+    this.shadowRoot.querySelectorAll("[data-auto-place]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        this._autoPlaceMarkers(event.currentTarget.dataset.autoPlace);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-align]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        this._alignSelectedMarkers(event.currentTarget.dataset.align);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-distribute]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        this._distributeSelectedMarkers(event.currentTarget.dataset.distribute);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-clear-selection]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this._selectedMarkers.clear();
+        this._render();
+      });
+    });
+
     this.shadowRoot.querySelectorAll("[data-marker]").forEach((element) => {
       element.addEventListener("dragstart", (event) => {
-        event.dataTransfer.setData("text/plain", event.currentTarget.dataset.marker);
+        const key = event.currentTarget.dataset.marker;
+        this._dragMarkerKey = key;
+        event.dataTransfer.setData("text/plain", key);
         event.dataTransfer.effectAllowed = "move";
+        if ((event.ctrlKey || event.metaKey) && key) this._selectedMarkers.add(key);
+      });
+      element.addEventListener("dragend", () => {
+        this._dragMarkerKey = null;
       });
       element.addEventListener("click", (event) => {
+        const key = event.currentTarget.dataset.marker;
+        if (key) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.ctrlKey || event.metaKey) {
+            if (this._selectedMarkers.has(key)) this._selectedMarkers.delete(key);
+            else this._selectedMarkers.add(key);
+          } else {
+            this._selectedMarkers.clear();
+            this._selectedMarkers.add(key);
+          }
+          this._render();
+          return;
+        }
+
         const entityId = event.currentTarget.dataset.entity;
         if (!entityId) return;
         const moreInfoEvent = new Event("hass-more-info", { bubbles: true, composed: true });
@@ -644,14 +781,31 @@ class DeviceMapPanel extends HTMLElement {
         if (!row) return;
 
         const point = this._pointFromEvent(map.querySelector(".map-content") || map, event);
-        this._markers[key] = {
-          key,
-          entityId: row.entityId,
-          name: row.name,
-          icon: this._markers[key]?.icon || "",
-          x: point.x,
-          y: point.y,
-        };
+        const existingMarker = this._markers[key];
+        const moveSelectedGroup = (event.ctrlKey || event.metaKey) && existingMarker && this._selectedMarkers.has(key) && this._selectedMarkers.size > 1;
+
+        if (moveSelectedGroup) {
+          const deltaX = point.x - existingMarker.x;
+          const deltaY = point.y - existingMarker.y;
+          for (const selectedKey of this._selectedMarkers) {
+            const marker = this._markers[selectedKey];
+            if (!marker) continue;
+            marker.x = Math.max(0, Math.min(100, marker.x + deltaX));
+            marker.y = Math.max(0, Math.min(100, marker.y + deltaY));
+          }
+        } else {
+          this._markers[key] = {
+            key,
+            entityId: row.entityId,
+            name: row.name,
+            icon: existingMarker?.icon || "",
+            x: point.x,
+            y: point.y,
+          };
+          this._selectedMarkers.clear();
+          this._selectedMarkers.add(key);
+        }
+        this._dragMarkerKey = null;
         this._saveMarkers();
         this._render();
       });
@@ -664,6 +818,72 @@ class DeviceMapPanel extends HTMLElement {
       x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
       y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
     };
+  }
+
+  _selectionBoxTemplate() {
+    const box = this._normalizedSelectionBox();
+    return `
+      <div
+        class="selection-box"
+        style="left: ${this._escape(box.left)}%; top: ${this._escape(box.top)}%; width: ${this._escape(box.width)}%; height: ${this._escape(box.height)}%;"
+      ></div>
+    `;
+  }
+
+  _normalizedSelectionBox() {
+    const box = this._selectionBox || { startX: 0, startY: 0, endX: 0, endY: 0 };
+    const left = Math.min(box.startX, box.endX);
+    const right = Math.max(box.startX, box.endX);
+    const top = Math.min(box.startY, box.endY);
+    const bottom = Math.max(box.startY, box.endY);
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  _updateSelectionFromBox(additive = false) {
+    if (!this._selectionBox) return;
+    const box = this._normalizedSelectionBox();
+    if (!additive) this._selectedMarkers.clear();
+
+    for (const [key, marker] of Object.entries(this._markers)) {
+      if (marker.x >= box.left && marker.x <= box.right && marker.y >= box.top && marker.y <= box.bottom) {
+        this._selectedMarkers.add(key);
+      }
+    }
+  }
+
+  _updateSelectionBoxElement(map) {
+    if (!this._selectionBox) return;
+    const content = map.querySelector(".map-content");
+    if (!content) return;
+    if (!this._selectionBoxElement || !content.contains(this._selectionBoxElement)) {
+      this._selectionBoxElement = document.createElement("div");
+      this._selectionBoxElement.className = "selection-box";
+      content.appendChild(this._selectionBoxElement);
+    }
+
+    const box = this._normalizedSelectionBox();
+    this._selectionBoxElement.style.left = `${box.left}%`;
+    this._selectionBoxElement.style.top = `${box.top}%`;
+    this._selectionBoxElement.style.width = `${box.width}%`;
+    this._selectionBoxElement.style.height = `${box.height}%`;
+  }
+
+  _removeSelectionBoxElement() {
+    this._selectionBoxElement?.remove();
+    this._selectionBoxElement = null;
+  }
+
+  _syncSelectedMarkerClasses(map) {
+    map.querySelectorAll("[data-marker]").forEach((marker) => {
+      marker.classList.toggle("selected", this._selectedMarkers.has(marker.dataset.marker));
+    });
   }
 
   _captureMapScroll() {
@@ -682,24 +902,55 @@ class DeviceMapPanel extends HTMLElement {
     map.scrollTop = this._mapScroll.top;
   }
 
+  _captureDeviceListScroll() {
+    const deviceList = this.shadowRoot?.querySelector(".devices");
+    if (!deviceList) return;
+    this._deviceListScrollTop = deviceList.scrollTop;
+  }
+
+  _restoreDeviceListScroll() {
+    const deviceList = this.shadowRoot?.querySelector(".devices");
+    if (!deviceList) return;
+    deviceList.scrollTop = this._deviceListScrollTop;
+  }
+
   _attachPanEvents(map) {
     let startX = 0;
     let startY = 0;
     let startLeft = 0;
     let startTop = 0;
     let panning = false;
+    let selecting = false;
     let pointerId = null;
 
     map.addEventListener("pointerdown", (event) => {
-      const canScrollX = map.scrollWidth > map.clientWidth;
-      const canScrollY = map.scrollHeight > map.clientHeight;
-      if (!canScrollX && !canScrollY) return;
       if (event.target.closest("[data-marker]")) return;
       if (event.button !== undefined && event.button !== 0) return;
 
       event.preventDefault();
-      panning = true;
       pointerId = event.pointerId;
+      if (event.shiftKey && this._canEdit() && this._mode === "edit") {
+        const point = this._pointFromEvent(map.querySelector(".map-content") || map, event);
+        selecting = true;
+        this._selectionBox = {
+          startX: point.x,
+          startY: point.y,
+          endX: point.x,
+          endY: point.y,
+        };
+        map.classList.add("selecting");
+        map.setPointerCapture?.(event.pointerId);
+        this._updateSelectionFromBox(event.ctrlKey || event.metaKey);
+        this._updateSelectionBoxElement(map);
+        this._syncSelectedMarkerClasses(map);
+        return;
+      }
+
+      const canScrollX = map.scrollWidth > map.clientWidth;
+      const canScrollY = map.scrollHeight > map.clientHeight;
+      if (!canScrollX && !canScrollY) return;
+
+      panning = true;
       this._isPanning = true;
       startX = event.clientX;
       startY = event.clientY;
@@ -710,6 +961,21 @@ class DeviceMapPanel extends HTMLElement {
     });
 
     const movePan = (event) => {
+      if (selecting) {
+        if (pointerId !== null && event.pointerId !== pointerId) return;
+        event.preventDefault();
+        const point = this._pointFromEvent(map.querySelector(".map-content") || map, event);
+        this._selectionBox = {
+          ...this._selectionBox,
+          endX: point.x,
+          endY: point.y,
+        };
+        this._updateSelectionFromBox(event.ctrlKey || event.metaKey);
+        this._updateSelectionBoxElement(map);
+        this._syncSelectedMarkerClasses(map);
+        return;
+      }
+
       if (!panning) return;
       if (pointerId !== null && event.pointerId !== pointerId) return;
       event.preventDefault();
@@ -721,6 +987,18 @@ class DeviceMapPanel extends HTMLElement {
     map.addEventListener("pointermove", movePan);
 
     const stopPan = (event) => {
+      if (selecting) {
+        if (pointerId !== null && event.pointerId !== pointerId) return;
+        selecting = false;
+        pointerId = null;
+        this._selectionBox = null;
+        this._removeSelectionBoxElement();
+        map.classList.remove("selecting");
+        map.releasePointerCapture?.(event.pointerId);
+        this._render();
+        return;
+      }
+
       if (!panning) return;
       if (pointerId !== null && event.pointerId !== pointerId) return;
       panning = false;
@@ -733,6 +1011,88 @@ class DeviceMapPanel extends HTMLElement {
 
     map.addEventListener("pointerup", stopPan);
     map.addEventListener("pointercancel", stopPan);
+  }
+
+  _alignSelectedMarkers(direction) {
+    const selected = [...this._selectedMarkers]
+      .map((key) => this._markers[key])
+      .filter(Boolean);
+    if (selected.length < 2) return;
+
+    const values = {
+      left: Math.min(...selected.map((marker) => marker.x)),
+      right: Math.max(...selected.map((marker) => marker.x)),
+      top: Math.min(...selected.map((marker) => marker.y)),
+      bottom: Math.max(...selected.map((marker) => marker.y)),
+    };
+
+    if (!Object.prototype.hasOwnProperty.call(values, direction)) return;
+
+    for (const marker of selected) {
+      if (direction === "left" || direction === "right") marker.x = values[direction];
+      if (direction === "top" || direction === "bottom") marker.y = values[direction];
+    }
+
+    this._saveMarkers();
+    this._render();
+  }
+
+  _distributeSelectedMarkers(axis) {
+    const selected = [...this._selectedMarkers]
+      .map((key) => this._markers[key])
+      .filter(Boolean);
+    if (selected.length < 3) return;
+
+    const key = axis === "vertical" ? "y" : "x";
+    const sorted = selected.sort((a, b) => a[key] - b[key]);
+    const first = sorted[0][key];
+    const last = sorted[sorted.length - 1][key];
+    const step = (last - first) / (sorted.length - 1);
+
+    sorted.forEach((marker, index) => {
+      marker[key] = first + step * index;
+    });
+
+    this._saveMarkers();
+    this._render();
+  }
+
+  _autoPlaceMarkers(scope) {
+    const rows = this._deviceRows();
+    const sourceRows = scope === "all" ? rows : this._filteredRows(rows);
+    const unplaced = sourceRows.filter((row) => !this._markers[row.key]);
+    if (!unplaced.length) return;
+
+    const columns = Math.ceil(Math.sqrt(unplaced.length));
+    const rowsCount = Math.ceil(unplaced.length / columns);
+    const xMin = 8;
+    const xMax = 92;
+    const yMin = 8;
+    const yMax = 92;
+    const xStep = columns > 1 ? (xMax - xMin) / (columns - 1) : 0;
+    const yStep = rowsCount > 1 ? (yMax - yMin) / (rowsCount - 1) : 0;
+
+    this._selectedMarkers.clear();
+
+    unplaced.forEach((row, index) => {
+      const column = index % columns;
+      const rowIndex = Math.floor(index / columns);
+      const jitterX = columns > 1 ? (Math.random() - 0.5) * Math.min(4, xStep * 0.35) : 0;
+      const jitterY = rowsCount > 1 ? (Math.random() - 0.5) * Math.min(4, yStep * 0.35) : 0;
+
+      this._markers[row.key] = {
+        key: row.key,
+        entityId: row.entityId,
+        name: row.name,
+        icon: this._markers[row.key]?.icon || "",
+        x: Math.max(0, Math.min(100, xMin + xStep * column + jitterX)),
+        y: Math.max(0, Math.min(100, yMin + yStep * rowIndex + jitterY)),
+      };
+      this._selectedMarkers.add(row.key);
+    });
+
+    this._saveMarkers();
+    this._render();
   }
 
   _select(key, label, options) {
@@ -752,18 +1112,18 @@ class DeviceMapPanel extends HTMLElement {
     const placed = Boolean(this._markers[row.key]);
     const icon = this._markerIcon(row);
     return `
-      <div class="device-row ${row.offline ? "offline" : "online"}" draggable="true" data-device="${this._escape(row.key)}">
+      <div class="device-row ${placed ? "is-placed" : ""} ${row.offline ? "offline" : "online"}" draggable="true" data-device="${this._escape(row.key)}">
         <span class="dot"><ha-icon icon="${this._escape(icon)}"></ha-icon></span>
         <span class="device-text">
           <strong>${this._escape(row.name)}</strong>
           <small>${this._escape(row.areaName)} - ${this._escape(row.domain || row.integration)}</small>
-          ${placed ? this._iconSelect(row) : ""}
         </span>
         ${
           placed
             ? `<button type="button" class="remove" data-remove="${this._escape(row.key)}" title="Remove from map">Remove</button>`
             : `<span class="placed">Drag</span>`
         }
+        ${placed ? this._iconSelect(row) : ""}
       </div>
     `;
   }
@@ -786,14 +1146,16 @@ class DeviceMapPanel extends HTMLElement {
     const marker = this._markers[row.key];
     const size = this._display.markerSize;
     const icon = this._markerIcon(row);
+    const stateClass = this._stateClass(row);
+    const title = this._config.show_entity_state ? `${row.name} - ${row.primaryState}` : row.name;
     return `
       <button
-        class="marker ${this._display.showLabels ? "with-label" : "icon-only"} ${row.offline ? "offline" : "online"}"
+        class="marker ${this._display.showLabels ? "with-label" : "icon-only"} ${this._config.show_entity_state ? "state-mode" : ""} ${stateClass} ${isEditing && this._selectedMarkers.has(row.key) ? "selected" : ""} ${row.offline ? "offline" : "online"}"
         style="left: ${this._escape(marker.x)}%; top: ${this._escape(marker.y)}%; --marker-size: ${this._escape(size)}px;"
         draggable="${isEditing ? "true" : "false"}"
         data-marker="${this._escape(row.key)}"
         data-entity="${this._escape(row.entityId)}"
-        title="${this._escape(row.name)}"
+        title="${this._escape(title)}"
       >
         <span><ha-icon icon="${this._escape(icon)}"></ha-icon></span>
         ${this._display.showLabels ? `<strong>${this._escape(row.name)}</strong>` : ""}
@@ -861,11 +1223,16 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         aside {
+          position: sticky;
+          top: 12px;
           display: grid;
-          grid-template-rows: auto auto 1fr auto;
-          gap: 12px;
+          grid-template-rows: auto auto auto minmax(320px, 1fr) auto;
+          gap: 8px;
           min-width: 0;
+          height: calc(100vh - 24px);
+          max-height: calc(100vh - 24px);
           border-right: 1px solid var(--dmp-border);
+          box-sizing: border-box;
           padding: 14px;
         }
 
@@ -886,9 +1253,31 @@ class DeviceMapPanel extends HTMLElement {
           margin-top: 4px;
         }
 
-        .filters {
+        .filters, .bulk-actions {
           display: grid;
           gap: 8px;
+        }
+
+        .bulk-actions {
+          grid-template-columns: 1fr;
+          border-top: 1px solid var(--dmp-border);
+          padding: 8px 0 0;
+        }
+
+        .bulk-actions button {
+          border: 1px solid var(--dmp-border);
+          border-radius: 8px;
+          background: var(--secondary-background-color, #f7f8fa);
+          color: var(--primary-text-color);
+          cursor: pointer;
+          font: inherit;
+          font-size: 13px;
+          font-weight: 700;
+          min-height: 36px;
+        }
+
+        .bulk-actions button:hover {
+          border-color: var(--primary-color, #03a9f4);
         }
 
         label {
@@ -940,6 +1329,7 @@ class DeviceMapPanel extends HTMLElement {
         .devices {
           display: grid;
           align-content: start;
+          grid-auto-rows: max-content;
           gap: 7px;
           min-height: 0;
           overflow: auto;
@@ -949,7 +1339,7 @@ class DeviceMapPanel extends HTMLElement {
         .device-row {
           display: grid;
           grid-template-columns: auto minmax(0, 1fr) auto;
-          align-items: center;
+          align-items: start;
           gap: 9px;
           min-height: 48px;
           border: 1px solid var(--dmp-border);
@@ -957,6 +1347,12 @@ class DeviceMapPanel extends HTMLElement {
           background: var(--card-background-color, #fff);
           cursor: grab;
           padding: 8px;
+        }
+
+        .device-row.is-placed {
+          grid-template-rows: auto auto;
+          row-gap: 8px;
+          min-height: 84px;
         }
 
         .device-row:active {
@@ -978,6 +1374,7 @@ class DeviceMapPanel extends HTMLElement {
         .dot {
           width: 28px;
           height: 28px;
+          margin-top: 2px;
         }
 
         .dot ha-icon {
@@ -1007,11 +1404,13 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .icon-picker {
+          grid-column: 2 / 4;
           display: grid;
           grid-template-columns: auto minmax(0, 1fr);
           align-items: center;
           gap: 6px;
-          margin-top: 3px;
+          margin-top: 0;
+          align-self: end;
         }
 
         .icon-picker span {
@@ -1060,7 +1459,7 @@ class DeviceMapPanel extends HTMLElement {
           z-index: 4;
           top: 12px;
           display: grid;
-          grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto;
+          grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto auto;
           flex-wrap: wrap;
           align-items: center;
           gap: 10px;
@@ -1090,7 +1489,23 @@ class DeviceMapPanel extends HTMLElement {
           gap: 4px;
         }
 
-        .mode-switch button {
+        .align-controls {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          border-left: 1px solid var(--dmp-border);
+          padding-left: 10px;
+        }
+
+        .align-controls span {
+          color: var(--dmp-muted);
+          font-size: 12px;
+          font-weight: 700;
+          padding-right: 4px;
+          white-space: nowrap;
+        }
+
+        .mode-switch button, .align-controls button {
           border: 0;
           border-radius: 6px;
           background: transparent;
@@ -1101,6 +1516,159 @@ class DeviceMapPanel extends HTMLElement {
           font-weight: 700;
           min-height: 30px;
           padding: 0 10px;
+        }
+
+        .align-controls .tool-icon {
+          display: grid;
+          place-items: center;
+          min-width: 34px;
+          padding: 0;
+        }
+
+        .align-icon {
+          position: relative;
+          display: block;
+          width: 22px;
+          height: 22px;
+          --guide-color: var(--primary-text-color);
+          --block-color: #c052a8;
+        }
+
+        .align-icon::before,
+        .align-icon::after {
+          content: "";
+          position: absolute;
+          box-sizing: border-box;
+        }
+
+        .align-left::before,
+        .align-right::before,
+        .distribute-horizontal::before {
+          top: 2px;
+          bottom: 2px;
+          width: 3px;
+          border-radius: 2px;
+          background: var(--guide-color);
+        }
+
+        .align-left::before {
+          left: 3px;
+        }
+
+        .align-right::before {
+          right: 3px;
+        }
+
+        .align-left::after {
+          left: 8px;
+          top: 5px;
+          width: 11px;
+          height: 13px;
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 0 0 / 11px 5px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 0 8px / 8px 5px no-repeat;
+        }
+
+        .align-right::after {
+          right: 8px;
+          top: 5px;
+          width: 11px;
+          height: 13px;
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 0 0 / 11px 5px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 3px 8px / 8px 5px no-repeat;
+        }
+
+        .distribute-horizontal::before,
+        .distribute-horizontal::after {
+          top: 2px;
+          bottom: 2px;
+          width: 3px;
+          border-radius: 2px;
+          background: var(--guide-color);
+        }
+
+        .distribute-horizontal::before {
+          left: 2px;
+        }
+
+        .distribute-horizontal::after {
+          right: 2px;
+        }
+
+        .distribute-horizontal {
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 7px 5px / 4px 12px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 14px 5px / 4px 12px no-repeat;
+        }
+
+        .align-top::before,
+        .align-bottom::before {
+          left: 2px;
+          right: 2px;
+          height: 3px;
+          border-radius: 2px;
+          background: var(--guide-color);
+        }
+
+        .align-top::before {
+          top: 3px;
+        }
+
+        .align-bottom::before {
+          bottom: 3px;
+        }
+
+        .align-top::after {
+          left: 5px;
+          top: 8px;
+          width: 13px;
+          height: 11px;
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 0 0 / 5px 11px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 8px 0 / 5px 8px no-repeat;
+        }
+
+        .align-bottom::after {
+          left: 5px;
+          bottom: 8px;
+          width: 13px;
+          height: 11px;
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 0 0 / 5px 8px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 8px 0 / 5px 11px no-repeat;
+        }
+
+        .distribute-vertical::before,
+        .distribute-vertical::after {
+          left: 2px;
+          right: 2px;
+          height: 3px;
+          border-radius: 2px;
+          background: var(--guide-color);
+        }
+
+        .distribute-vertical::before {
+          top: 2px;
+        }
+
+        .distribute-vertical::after {
+          bottom: 2px;
+        }
+
+        .distribute-vertical {
+          background:
+            linear-gradient(var(--block-color), var(--block-color)) 6px 7px / 10px 4px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 6px 14px / 10px 4px no-repeat;
+        }
+
+        .align-controls button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
+        .align-controls button:not(:disabled):hover {
+          background: var(--secondary-background-color, #f7f8fa);
         }
 
         .mode-switch button.active {
@@ -1194,6 +1762,11 @@ class DeviceMapPanel extends HTMLElement {
           user-select: none;
         }
 
+        .map.selecting {
+          cursor: crosshair;
+          user-select: none;
+        }
+
         .map-content {
           position: relative;
           margin: 0;
@@ -1236,6 +1809,7 @@ class DeviceMapPanel extends HTMLElement {
 
         .marker {
           position: absolute;
+          z-index: 3;
           display: flex;
           align-items: center;
           gap: 6px;
@@ -1251,6 +1825,15 @@ class DeviceMapPanel extends HTMLElement {
           transform: translate(calc(var(--marker-size) / -2 - 5px), -50%);
         }
 
+        .selection-box {
+          position: absolute;
+          z-index: 2;
+          border: 1px solid var(--primary-color, #03a9f4);
+          background: rgba(3, 169, 244, 0.16);
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+          pointer-events: none;
+        }
+
         .marker.icon-only {
           display: grid;
           place-items: center;
@@ -1264,13 +1847,52 @@ class DeviceMapPanel extends HTMLElement {
           cursor: grabbing;
         }
 
+        .marker.selected {
+          outline: 3px solid var(--primary-color, #03a9f4);
+          outline-offset: 4px;
+        }
+
         .marker span {
           display: grid;
           place-items: center;
           width: var(--marker-size);
           height: var(--marker-size);
-          box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+          box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 13px rgba(29, 143, 95, 0.78);
           line-height: 0;
+        }
+
+        .marker.online span {
+          background: var(--dmp-good);
+        }
+
+        .marker.offline span {
+          background: var(--dmp-bad);
+          box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 15px rgba(212, 54, 54, 0.9);
+        }
+
+        .marker.state-mode.online span {
+          box-shadow: 0 0 0 3px rgba(29, 143, 95, 0.96), 0 0 16px rgba(29, 143, 95, 0.8);
+        }
+
+        .marker.state-mode.state-active span {
+          background: #f5c542;
+          color: #111;
+        }
+
+        .marker.state-mode.state-inactive span {
+          background: #111827;
+          color: #fff;
+        }
+
+        .marker.state-mode.state-neutral span {
+          background: #64748b;
+          color: #fff;
+        }
+
+        .marker.state-mode.offline span {
+          background: var(--dmp-bad);
+          color: #fff;
+          box-shadow: 0 0 0 3px rgba(212, 54, 54, 0.98), 0 0 18px rgba(212, 54, 54, 0.95);
         }
 
         .marker ha-icon {
@@ -1331,6 +1953,9 @@ class DeviceMapPanel extends HTMLElement {
           }
 
           aside {
+            position: relative;
+            top: auto;
+            height: auto;
             border-right: 0;
             border-bottom: 1px solid var(--dmp-border);
             max-height: 520px;
@@ -1339,6 +1964,14 @@ class DeviceMapPanel extends HTMLElement {
           .map-toolbar {
             grid-template-columns: 1fr;
             width: auto;
+          }
+
+          .align-controls {
+            border-left: 0;
+            border-top: 1px solid var(--dmp-border);
+            flex-wrap: wrap;
+            padding-left: 0;
+            padding-top: 6px;
           }
 
           .display-controls {
