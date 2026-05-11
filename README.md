@@ -25,7 +25,14 @@ url: /hacsfiles/Home-Assistant-Device-Panel/offline-device-panel.js
 type: module
 ```
 
-7. Add a manual Lovelace card:
+7. Optional: add the drawing/map panel resource too:
+
+```yaml
+url: /hacsfiles/Home-Assistant-Device-Panel/device-map-panel.js
+type: module
+```
+
+8. Add a manual Lovelace card:
 
 ```yaml
 type: custom:offline-device-panel
@@ -39,12 +46,17 @@ offline_states:
 
 ## Manual Install
 
-1. Copy `offline-device-panel.js` to your Home Assistant `config/www/` folder.
+1. Copy `offline-device-panel.js` and/or `device-map-panel.js` to your Home Assistant `config/www/` folder.
 2. In Home Assistant, go to **Settings > Dashboards > Resources**.
-3. Add this resource:
+3. Add the resources you want to use:
 
 ```yaml
 url: /local/offline-device-panel.js
+type: module
+```
+
+```yaml
+url: /local/device-map-panel.js
 type: module
 ```
 
@@ -58,6 +70,62 @@ display_mode: detailed
 offline_states:
   - unavailable
   - unknown
+```
+
+## Device Map Panel
+
+Use `device-map-panel.js` when you want to place devices on a drawing or floor plan.
+
+```yaml
+type: custom:device-map-panel
+title: Device Map
+image: /local/floorplan.png
+offline_states:
+  - unavailable
+  - unknown
+```
+
+The card shows a sidebar with all devices. Filter the list, then drag devices from the sidebar onto the drawing. Drag an existing marker to move it, or use **Remove** in the sidebar to remove it from the map.
+
+The map opens in **User Mode** by default, which shows only the drawing and device markers. Home Assistant admin users can switch to **Edit Mode** to see the sidebar, filters, drag-and-drop tools, remove buttons, and YAML export. Non-admin Home Assistant users cannot enter Edit Mode.
+
+Use the map zoom controls to zoom from 50% to 300%. The drawing and markers scale together, and marker positions stay aligned while zoomed.
+
+Markers automatically choose icons from the device/entity type when possible, such as bulbs for lights and motion icons for motion sensors. In Edit Mode, placed devices also show an icon picker in the sidebar so admins can override the marker icon.
+
+Use the display controls on the map to make markers smaller or larger and to show or hide marker names. When marker names are hidden, hovering over a marker still shows the device name. When zoomed in, drag the map background to pan around the floor plan.
+
+Marker positions are saved in the browser automatically. Open **Export YAML** to copy the current marker layout into your dashboard configuration:
+
+```yaml
+type: custom:device-map-panel
+title: Device Map
+image: /local/floorplan.png
+markers:
+  - key: example_device_id
+    entity: light.kitchen
+    name: Kitchen Light
+    icon: mdi:lightbulb
+    x: 42.50
+    y: 58.00
+```
+
+If you use multiple map cards with the same title on the same dashboard, set a unique `storage_key` for each one:
+
+```yaml
+type: custom:device-map-panel
+title: First Floor
+image: /local/first-floor.png
+storage_key: first-floor-map
+```
+
+To always load marker positions from YAML only, disable browser layout persistence:
+
+```yaml
+type: custom:device-map-panel
+title: Device Map
+image: /local/floorplan.png
+persist_layout: false
 ```
 
 ## Example Dashboard View
