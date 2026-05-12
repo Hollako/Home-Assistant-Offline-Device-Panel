@@ -75,9 +75,29 @@ offline_states:
   - unknown
 ```
 
+For multiple floorplans, use `floors` instead of the single `image` option:
+
+```yaml
+type: custom:device-map-panel
+title: Device Map
+floors:
+  - id: ground
+    name: Ground Floor
+    image: /local/floorplans/ground-floor.png
+    markers: []
+  - id: first
+    name: First Floor
+    image: /local/floorplans/first-floor.png
+    markers: []
+```
+
+When `floors` is configured, the top bar shows a floor selector. Each floor has its own image and marker positions, while the same sidebar, filters, Edit Mode tools, alignment tools, and YAML export continue to work on the selected floor.
+
 The card shows a sidebar with all devices. Filter the list, then drag devices from the sidebar onto the drawing. Drag an existing marker to move it, or use **Remove** in the sidebar to remove it from the map.
 
 The map opens in **User Mode** by default, which shows only the drawing and device markers. Home Assistant admin users can switch to **Edit Mode** to see the sidebar, filters, drag-and-drop tools, remove buttons, and YAML export. Non-admin Home Assistant users cannot enter Edit Mode.
+
+In Edit Mode, use **Hide Sidebar** in the top bar to collapse the sidebar and give the floorplan more space. Use **Show Sidebar** to bring it back.
 
 In Edit Mode, click a marker to select it, or Ctrl-click/Cmd-click multiple markers to build a selection. Use the alignment buttons to align the selected markers left, right, top, or bottom. Use **Space H** or **Space V** to distribute three or more selected markers evenly between the outer markers. Hold Ctrl/Cmd while dragging one selected marker to move the selected group together.
 
@@ -115,6 +135,22 @@ markers:
     icon: mdi:lightbulb
     x: 42.50
     y: 58.00
+```
+
+With multiple floors, **Export YAML** returns all floor layouts together:
+
+```yaml
+floors:
+  - id: ground
+    name: Ground Floor
+    image: /local/floorplans/ground-floor.png
+    markers:
+      - key: example_device_id
+        entity: light.kitchen
+        name: Kitchen Light
+        icon: mdi:lightbulb
+        x: 42.50
+        y: 58.00
 ```
 
 If you use multiple map cards with the same title on the same dashboard, set a unique `storage_key` for each one:

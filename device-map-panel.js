@@ -9,6 +9,7 @@ class DeviceMapPanel extends HTMLElement {
       image: "/local/floorplan.png",
       offline_states: ["unavailable", "unknown"],
       markers: [],
+      floors: [],
     };
   }
 
@@ -21,6 +22,9 @@ class DeviceMapPanel extends HTMLElement {
     this._entities = [];
     this._devices = [];
     this._areas = [];
+    this._floors = [];
+    this._activeFloorId = "";
+    this._floorMarkers = {};
     this._markers = {};
     this._filters = {
       status: "all",
@@ -30,6 +34,7 @@ class DeviceMapPanel extends HTMLElement {
       search: "",
     };
     this._mode = "user";
+    this._sidebarCollapsed = false;
     this._zoom = 1;
     this._exportOpen = false;
     this._display = {
@@ -58,6 +63,7 @@ class DeviceMapPanel extends HTMLElement {
       integrations: [],
       areas: [],
       markers: [],
+      floors: [],
       persist_layout: true,
       storage_key: "",
       marker_size: 18,
@@ -65,15 +71,17 @@ class DeviceMapPanel extends HTMLElement {
       show_entity_state: false,
       ...config,
     };
+    this._floors = this._normalizedFloors(this._config);
+    if (!this._floors.some((floor) => floor.id === this._activeFloorId)) {
+      this._activeFloorId = this._floors[0]?.id || "default";
+    }
     this._display = this._normalizedDisplay({
       markerSize: this._config.marker_size,
       showLabels: this._config.show_labels,
       ...this._loadDisplay(),
     });
-    this._markers = this._normalizedMarkers({
-      ...this._configMarkers(),
-      ...this._loadMarkers(),
-    });
+    this._floorMarkers = this._mergedFloorMarkers(this._configFloorMarkers(), this._loadMarkers());
+    this._markers = this._floorMarkers[this._activeFloorId] || {};
     this._render();
   }
 
@@ -358,6 +366,47 @@ class DeviceMapPanel extends HTMLElement {
     });
   }
 
+  _normalizedFloors(config) {
+    const configuredFloors = Array.isArray(config.floors) ? config.floors : [];
+    const source = configuredFloors.length
+      ? configuredFloors
+      : [
+          {
+            id: "default",
+            name: config.title || "Floor",
+            image: config.image || "",
+            markers: config.markers || [],
+          },
+        ];
+    const seen = new Set();
+
+    return source.map((floor, index) => {
+      const fallback = `floor-${index + 1}`;
+      const rawId = floor.id || floor.name || fallback;
+      let id = String(rawId)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || fallback;
+      while (seen.has(id)) id = `${id}-${index + 1}`;
+      seen.add(id);
+      return {
+        id,
+        name: floor.name || floor.title || rawId || `Floor ${index + 1}`,
+        image: floor.image || "",
+        markers: Array.isArray(floor.markers) ? floor.markers : [],
+      };
+    });
+  }
+
+  _hasMultipleFloors() {
+    return Array.isArray(this._config.floors) && this._config.floors.length > 0;
+  }
+
+  _activeFloor() {
+    return this._floors.find((floor) => floor.id === this._activeFloorId) || this._floors[0] || { id: "default", name: this._config.title, image: this._config.image };
+  }
+
   _options(rows, key) {
     const values = rows.flatMap((row) => {
       const value = row[key];
@@ -367,7 +416,22 @@ class DeviceMapPanel extends HTMLElement {
   }
 
   _configMarkers() {
-    return (this._config.markers || []).reduce((markers, marker) => {
+    return this._markersFromList(this._config.markers || []);
+  }
+
+  _configFloorMarkers() {
+    if (!this._hasMultipleFloors()) {
+      return { [this._activeFloorId || "default"]: this._configMarkers() };
+    }
+
+    return this._floors.reduce((result, floor) => {
+      result[floor.id] = this._markersFromList(floor.markers || []);
+      return result;
+    }, {});
+  }
+
+  _markersFromList(markersList) {
+    return (markersList || []).reduce((markers, marker) => {
       const key = marker.key || marker.device || marker.entity;
       if (!key) return markers;
       markers[key] = {
@@ -402,7 +466,7 @@ class DeviceMapPanel extends HTMLElement {
   _storageKey() {
     const path = window.location?.pathname || "dashboard";
     const cardKey = this._config.storage_key || this._config.title || "device-map-panel";
-    return `device-map-panel:markers:${path}:${cardKey}`;
+    return `device-map-panel:${this._hasMultipleFloors() ? "floors" : "markers"}:${path}:${cardKey}`;
   }
 
   _displayStorageKey() {
@@ -427,10 +491,43 @@ class DeviceMapPanel extends HTMLElement {
     if (this._config.persist_layout === false) return;
 
     try {
-      localStorage.setItem(this._storageKey(), JSON.stringify(this._markers));
+      this._floorMarkers[this._activeFloorId] = this._markers;
+      localStorage.setItem(this._storageKey(), JSON.stringify(this._hasMultipleFloors() ? this._floorMarkers : this._markers));
     } catch (error) {
       console.warn("device-map-panel: marker layout could not be saved", error);
     }
+  }
+
+  _mergedFloorMarkers(configMarkers, savedMarkers) {
+    const result = {};
+    for (const floor of this._floors) {
+      result[floor.id] = this._normalizedMarkers(configMarkers[floor.id] || {});
+    }
+
+    if (this._hasMultipleFloors()) {
+      const savedByFloor = this._looksLikeFloorMarkers(savedMarkers)
+        ? savedMarkers
+        : { [this._activeFloorId || this._floors[0]?.id || "default"]: savedMarkers };
+      for (const floor of this._floors) {
+        result[floor.id] = this._normalizedMarkers({
+          ...result[floor.id],
+          ...(savedByFloor[floor.id] || {}),
+        });
+      }
+      return result;
+    }
+
+    const floorId = this._floors[0]?.id || "default";
+    result[floorId] = this._normalizedMarkers({
+      ...(result[floorId] || {}),
+      ...(this._looksLikeFloorMarkers(savedMarkers) ? savedMarkers[floorId] || {} : savedMarkers || {}),
+    });
+    return result;
+  }
+
+  _looksLikeFloorMarkers(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.values(value).some((entry) => entry && typeof entry === "object" && !("x" in entry) && !("y" in entry));
   }
 
   _loadDisplay() {
@@ -472,6 +569,8 @@ class DeviceMapPanel extends HTMLElement {
     const rows = this._deviceRows();
     const filteredRows = this._filteredRows(rows);
     const rowByKey = new Map(rows.map((row) => [row.key, row]));
+    const activeFloor = this._activeFloor();
+    const floorTitle = this._hasMultipleFloors() ? `${this._config.title} - ${activeFloor.name}` : this._config.title;
     const placedRows = Object.keys(this._markers)
       .map((key) => rowByKey.get(key))
       .filter(Boolean);
@@ -482,17 +581,11 @@ class DeviceMapPanel extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <ha-card>
-        <div class="panel ${isEditing ? "editing" : "viewing"}">
+        <div class="panel ${isEditing ? "editing" : "viewing"} ${isEditing && this._sidebarCollapsed ? "sidebar-collapsed" : ""}">
           ${
-            isEditing
+            isEditing && !this._sidebarCollapsed
               ? `
           <aside>
-            <header>
-              <div>
-                <h2>${this._escape(this._config.title)}</h2>
-                <p>${this._escape(modeLabel)} - ${placedRows.length} placed / ${offlineCount} offline</p>
-              </div>
-            </header>
             <section class="filters">
               ${this._select("status", "Status", [
                 ["all", "All devices"],
@@ -525,7 +618,21 @@ class DeviceMapPanel extends HTMLElement {
           }
           <main>
             <div class="map-toolbar">
-              <div class="toolbar-title">${this._escape(this._config.title)}</div>
+              <div class="toolbar-title">${this._escape(floorTitle)}</div>
+              ${
+                this._hasMultipleFloors()
+                  ? `
+              <label class="floor-switch" title="Floor">
+                <span>Floor</span>
+                <select data-floor>
+                  ${this._floors
+                    .map((floor) => `<option value="${this._escape(floor.id)}" ${floor.id === this._activeFloorId ? "selected" : ""}>${this._escape(floor.name)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+              `
+                  : ""
+              }
               <div class="zoom-controls" aria-label="Map zoom">
                 <button type="button" data-zoom="out" title="Zoom out">-</button>
                 <span>${Math.round(this._zoom * 100)}%</span>
@@ -545,6 +652,13 @@ class DeviceMapPanel extends HTMLElement {
               ${
                 canEdit
                   ? `
+              ${
+                isEditing
+                  ? `<button type="button" class="sidebar-toggle" data-sidebar-toggle title="${this._sidebarCollapsed ? "Show device sidebar" : "Hide device sidebar"}">
+                ${this._sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
+              </button>`
+                  : ""
+              }
               <div class="align-controls" aria-label="Marker alignment">
                 <span>${this._selectedMarkers.size} selected</span>
                 <button type="button" class="tool-icon" data-align="left" title="Align selected left" aria-label="Align selected left" ${this._selectedMarkers.size < 2 ? "disabled" : ""}>
@@ -576,12 +690,12 @@ class DeviceMapPanel extends HTMLElement {
               }
             </div>
             ${
-              this._config.image
+              activeFloor.image
                 ? `
             <div class="map ${isEditing ? "editable" : ""} ${this._zoom < 1 ? "zoomed-out" : ""}" data-map>
               <div class="map-content" style="width: ${this._escape(this._zoom * 100)}%;">
-                <img src="${this._escape(this._config.image)}" alt="" />
-                <div class="image-error">Image could not be loaded: ${this._escape(this._config.image)}</div>
+                <img src="${this._escape(activeFloor.image)}" alt="" />
+                <div class="image-error">Image could not be loaded: ${this._escape(activeFloor.image)}</div>
                 ${placedRows.map((row) => this._markerTemplate(row, isEditing)).join("")}
                 ${isEditing && this._selectionBox ? this._selectionBoxTemplate() : ""}
               </div>
@@ -608,7 +722,31 @@ class DeviceMapPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-mode]").forEach((element) => {
       element.addEventListener("click", (event) => {
         this._mode = event.currentTarget.dataset.mode === "edit" ? "edit" : "user";
-        if (this._mode !== "edit") this._selectedMarkers.clear();
+        if (this._mode !== "edit") {
+          this._selectedMarkers.clear();
+          this._sidebarCollapsed = false;
+        }
+        this._render();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-floor]").forEach((element) => {
+      element.addEventListener("change", (event) => {
+        const floorId = event.currentTarget.value;
+        if (!this._floors.some((floor) => floor.id === floorId)) return;
+        this._floorMarkers[this._activeFloorId] = this._markers;
+        this._activeFloorId = floorId;
+        this._markers = this._floorMarkers[floorId] || {};
+        this._selectedMarkers.clear();
+        this._selectionBox = null;
+        this._mapScroll = { left: 0, top: 0 };
+        this._render();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-sidebar-toggle]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this._sidebarCollapsed = !this._sidebarCollapsed;
         this._render();
       });
     });
@@ -1165,19 +1303,34 @@ class DeviceMapPanel extends HTMLElement {
 
   _yamlExport(rows) {
     const rowByKey = new Map(rows.map((row) => [row.key, row]));
-    const markers = Object.entries(this._markers)
-      .map(([key, marker]) => {
-        const row = rowByKey.get(key);
-        return {
-          key,
-          entity: row?.entityId || marker.entityId,
-          name: row?.name || marker.name || key,
-          icon: marker.icon || "",
-          x: Number(marker.x).toFixed(2),
-          y: Number(marker.y).toFixed(2),
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
+    if (this._hasMultipleFloors()) {
+      return [
+        "floors:",
+        ...this._floors.flatMap((floor) => {
+          const markers = this._yamlMarkersForFloor(floor.id, rowByKey);
+          return [
+            `  - id: ${floor.id}`,
+            `    name: ${floor.name}`,
+            `    image: ${floor.image}`,
+            ...(markers.length
+              ? [
+                  "    markers:",
+                  ...markers.flatMap((marker) => [
+                    `      - key: ${marker.key}`,
+                    `        entity: ${marker.entity}`,
+                    `        name: ${marker.name}`,
+                    ...(marker.icon ? [`        icon: ${marker.icon}`] : []),
+                    `        x: ${marker.x}`,
+                    `        y: ${marker.y}`,
+                  ]),
+                ]
+              : ["    markers: []"]),
+          ];
+        }),
+      ].join("\n");
+    }
+
+    const markers = this._yamlMarkersForFloor(this._activeFloorId, rowByKey);
 
     if (!markers.length) return "markers: []";
 
@@ -1192,6 +1345,23 @@ class DeviceMapPanel extends HTMLElement {
         `    y: ${marker.y}`,
       ]),
     ].join("\n");
+  }
+
+  _yamlMarkersForFloor(floorId, rowByKey) {
+    const floorMarkers = floorId === this._activeFloorId ? this._markers : this._floorMarkers[floorId] || {};
+    return Object.entries(floorMarkers)
+      .map(([key, marker]) => {
+        const row = rowByKey.get(key);
+        return {
+          key,
+          entity: row?.entityId || marker.entityId,
+          name: row?.name || marker.name || key,
+          icon: marker.icon || "",
+          x: Number(marker.x).toFixed(2),
+          y: Number(marker.y).toFixed(2),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   _escape(value) {
@@ -1222,11 +1392,15 @@ class DeviceMapPanel extends HTMLElement {
           display: block;
         }
 
+        .panel.sidebar-collapsed {
+          grid-template-columns: 1fr;
+        }
+
         aside {
           position: sticky;
           top: 12px;
           display: grid;
-          grid-template-rows: auto auto auto minmax(320px, 1fr) auto;
+          grid-template-rows: auto auto minmax(320px, 1fr) auto;
           gap: 8px;
           min-width: 0;
           height: calc(100vh - 24px);
@@ -1458,8 +1632,7 @@ class DeviceMapPanel extends HTMLElement {
           position: sticky;
           z-index: 4;
           top: 12px;
-          display: grid;
-          grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto auto;
+          display: flex;
           flex-wrap: wrap;
           align-items: center;
           gap: 10px;
@@ -1474,6 +1647,7 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .toolbar-title {
+          flex: 1 1 160px;
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1482,6 +1656,25 @@ class DeviceMapPanel extends HTMLElement {
           font-size: 14px;
           font-weight: 800;
           padding: 0 10px;
+        }
+
+        .floor-switch {
+          display: flex;
+          align-items: center;
+          flex: 1 1 280px;
+          gap: 6px;
+          min-width: 260px;
+          max-width: 460px;
+        }
+
+        .floor-switch select {
+          min-height: 30px;
+          max-width: none;
+          padding: 0 8px;
+        }
+
+        .floor-switch span {
+          white-space: nowrap;
         }
 
         .mode-switch {
@@ -1505,7 +1698,7 @@ class DeviceMapPanel extends HTMLElement {
           white-space: nowrap;
         }
 
-        .mode-switch button, .align-controls button {
+        .mode-switch button, .align-controls button, .sidebar-toggle {
           border: 0;
           border-radius: 6px;
           background: transparent;
@@ -1516,6 +1709,16 @@ class DeviceMapPanel extends HTMLElement {
           font-weight: 700;
           min-height: 30px;
           padding: 0 10px;
+        }
+
+        .sidebar-toggle {
+          border-left: 1px solid var(--dmp-border);
+          color: var(--primary-text-color);
+          white-space: nowrap;
+        }
+
+        .sidebar-toggle:hover {
+          background: var(--secondary-background-color, #f7f8fa);
         }
 
         .align-controls .tool-icon {
@@ -1974,6 +2177,14 @@ class DeviceMapPanel extends HTMLElement {
             padding-top: 6px;
           }
 
+          .floor-switch {
+            width: 100%;
+          }
+
+          .floor-switch select {
+            max-width: none;
+          }
+
           .display-controls {
             width: 100%;
             min-width: 0;
@@ -1998,7 +2209,7 @@ class DeviceMapPanelEditor extends HTMLElement {
     this._config = config;
     this.innerHTML = `
       <div style="padding: 12px; color: var(--primary-text-color);">
-        Configure this card in YAML with an image, then drag devices from the sidebar onto the drawing.
+        Configure this card in YAML with an image or floors, then drag devices from the sidebar onto the drawing.
       </div>
     `;
   }
