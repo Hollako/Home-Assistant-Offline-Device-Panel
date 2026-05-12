@@ -8,6 +8,7 @@ The card:
 
 - Shows one card per Home Assistant device, grouped by area.
 - Uses a red frame for devices with unavailable or unknown entities.
+- Shows an alarm banner when offline devices are detected, grouped by affected area.
 - Uses a green frame for online devices when the online filter is enabled.
 - Filters by status, multiple domains, multiple integrations, multiple areas, and search text.
 - Switches between detailed cards and simple cards from the dashboard.
@@ -123,6 +124,8 @@ title: Device Map
 image: /local/floorplan.png
 show_entity_state: true
 ```
+
+When placed markers are offline, the map shows an offline marker notification list above the floorplan. Click an offline marker in that list to switch to the correct floor, center the map on the marker, and briefly highlight it.
 
 Marker positions are saved in the browser automatically. Open **Export YAML** to copy the current marker layout into your dashboard configuration:
 
@@ -244,10 +247,37 @@ offline_states:
   - unknown
 ```
 
+Use `force_simple: true` when you want the card to always stay in simple mode and hide the **Card style** filter from the dashboard:
+
+```yaml
+type: custom:offline-device-panel
+title: Simple Device Health
+force_simple: true
+show_online: true
+```
+
+## Friendly Labels
+
+Use `domain_labels` and `integration_labels` to rename technical Home Assistant names in the card and filter dropdowns.
+
+```yaml
+type: custom:offline-device-panel
+title: Device Health
+domain_labels:
+  binary_sensor: Motion Sensors
+  light: Lighting
+  switch: Switches
+integration_labels:
+  zha: Zigbee
+  mqtt: MQTT Devices
+  esphome: ESPHome
+```
+
 ## Notes
 
 - `domains` use entity domains such as `light`, `cover`, `sensor`, `switch`, `climate`, and `binary_sensor`.
 - `integrations` use Home Assistant platform names from the entity registry, such as `zha`, `mqtt`, `shelly`, `hue`, or `esphome`.
+- `domain_labels` and `integration_labels` only change display text. Filters still use the original Home Assistant domain/integration values.
 - `areas` can be area names or area IDs.
 - The dashboard filters for domains, integrations, and areas support multiple checked values.
 - If an entity is not attached to a device in the registry, the card still shows it as its own fallback item.

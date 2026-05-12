@@ -51,6 +51,7 @@ class DeviceMapPanel extends HTMLElement {
     this._dragMarkerKey = null;
     this._selectionBox = null;
     this._selectionBoxElement = null;
+    this._pendingMarkerFocus = null;
     this._boundKeydown = (event) => this._handleKeydown(event);
   }
 
@@ -565,12 +566,18 @@ class DeviceMapPanel extends HTMLElement {
 
     this._captureMapScroll();
     this._captureDeviceListScroll();
+    const activeElement = this.shadowRoot.activeElement;
+    const activeFilter = activeElement?.dataset?.filter || "";
+    const activeDisplay = activeElement?.dataset?.display || "";
+    const selectionStart = typeof activeElement?.selectionStart === "number" ? activeElement.selectionStart : null;
+    const selectionEnd = typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null;
 
     const rows = this._deviceRows();
     const filteredRows = this._filteredRows(rows);
     const rowByKey = new Map(rows.map((row) => [row.key, row]));
     const activeFloor = this._activeFloor();
     const floorTitle = this._hasMultipleFloors() ? `${this._config.title} - ${activeFloor.name}` : this._config.title;
+    const offlineMarkers = this._offlineMarkersByFloor(rowByKey);
     const placedRows = Object.keys(this._markers)
       .map((key) => rowByKey.get(key))
       .filter(Boolean);
@@ -690,6 +697,7 @@ class DeviceMapPanel extends HTMLElement {
                   : ""
               }
             </div>
+            ${offlineMarkers.length ? this._offlineMarkerAlertTemplate(offlineMarkers) : ""}
             ${
               activeFloor.image
                 ? `
@@ -714,6 +722,22 @@ class DeviceMapPanel extends HTMLElement {
     requestAnimationFrame(() => {
       this._restoreMapScroll();
       this._restoreDeviceListScroll();
+      const activeSelector = activeFilter
+        ? `[data-filter="${this._cssEscape(activeFilter)}"]`
+        : activeDisplay
+          ? `[data-display="${this._cssEscape(activeDisplay)}"]`
+          : "";
+      if (activeSelector) {
+        const restoredInput = this.shadowRoot.querySelector(activeSelector);
+        restoredInput?.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          restoredInput?.setSelectionRange?.(selectionStart, selectionEnd);
+        }
+      }
+      if (this._pendingMarkerFocus) {
+        this._focusMarker(this._pendingMarkerFocus);
+        this._pendingMarkerFocus = null;
+      }
     });
   }
 
@@ -749,6 +773,14 @@ class DeviceMapPanel extends HTMLElement {
       element.addEventListener("click", () => {
         this._sidebarCollapsed = !this._sidebarCollapsed;
         this._render();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-jump-marker]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        const floorId = event.currentTarget.dataset.jumpFloor;
+        const markerKey = event.currentTarget.dataset.jumpMarker;
+        this._jumpToMarker(floorId, markerKey);
       });
     });
 
@@ -1234,6 +1266,82 @@ class DeviceMapPanel extends HTMLElement {
     this._render();
   }
 
+  _offlineMarkersByFloor(rowByKey) {
+    return this._floors
+      .flatMap((floor) => {
+        const markers = floor.id === this._activeFloorId ? this._markers : this._floorMarkers[floor.id] || {};
+        return Object.keys(markers)
+          .map((key) => {
+            const row = rowByKey.get(key);
+            if (!row?.offline) return null;
+            return {
+              key,
+              name: row.name,
+              areaName: row.areaName,
+              floorId: floor.id,
+              floorName: floor.name,
+            };
+          })
+          .filter(Boolean);
+      })
+      .sort((a, b) => a.floorName.localeCompare(b.floorName) || a.areaName.localeCompare(b.areaName) || a.name.localeCompare(b.name));
+  }
+
+  _offlineMarkerAlertTemplate(markers) {
+    return `
+      <section class="map-alert" aria-label="Offline markers">
+        <div class="map-alert-title">
+          <span>!</span>
+          <strong>${this._escape(markers.length)} offline ${markers.length === 1 ? "marker" : "markers"}</strong>
+        </div>
+        <div class="map-alert-list">
+          ${markers
+            .map(
+              (marker) => `
+          <button
+            type="button"
+            data-jump-floor="${this._escape(marker.floorId)}"
+            data-jump-marker="${this._escape(marker.key)}"
+            title="${this._escape(`${marker.floorName} - ${marker.name}`)}"
+          >
+            <span>${this._escape(marker.floorName)}</span>
+            ${this._escape(marker.name)}
+          </button>
+          `
+            )
+            .join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  _jumpToMarker(floorId, markerKey) {
+    if (!floorId || !markerKey || !this._floors.some((floor) => floor.id === floorId)) return;
+    this._floorMarkers[this._activeFloorId] = this._markers;
+    this._activeFloorId = floorId;
+    this._markers = this._floorMarkers[floorId] || {};
+    this._selectedMarkers.clear();
+    this._selectionBox = null;
+    this._pendingMarkerFocus = markerKey;
+    this._render();
+  }
+
+  _focusMarker(markerKey) {
+    const map = this.shadowRoot?.querySelector("[data-map]");
+    const marker = this.shadowRoot?.querySelector(`[data-marker="${this._cssEscape(markerKey)}"]`);
+    if (!map || !marker) return;
+
+    const left = marker.offsetLeft - map.clientWidth / 2 + marker.offsetWidth / 2;
+    const top = marker.offsetTop - map.clientHeight / 2 + marker.offsetHeight / 2;
+    map.scrollTo({
+      left: Math.max(0, Math.min(left, map.scrollWidth - map.clientWidth)),
+      top: Math.max(0, Math.min(top, map.scrollHeight - map.clientHeight)),
+      behavior: "smooth",
+    });
+    marker.classList.add("jump-focus");
+    window.setTimeout(() => marker.classList.remove("jump-focus"), 1800);
+  }
+
   _select(key, label, options) {
     const optionHtml = options
       .map(([value, text]) => `<option value="${this._escape(value)}" ${this._filters[key] === value ? "selected" : ""}>${this._escape(text)}</option>`)
@@ -1371,6 +1479,10 @@ class DeviceMapPanel extends HTMLElement {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  _cssEscape(value) {
+    return window.CSS?.escape ? CSS.escape(String(value)) : String(value).replace(/"/g, '\\"');
   }
 
   _styles() {
@@ -1737,6 +1849,95 @@ class DeviceMapPanel extends HTMLElement {
           background: var(--secondary-background-color, #f7f8fa);
         }
 
+        .map-alert {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: calc(100% - 24px);
+          max-width: calc(100% - 24px);
+          margin: -4px 12px 10px;
+          border: 1px solid rgba(212, 54, 54, 0.45);
+          border-radius: 8px;
+          background: linear-gradient(90deg, rgba(212, 54, 54, 0.18), rgba(212, 54, 54, 0.07));
+          box-sizing: border-box;
+          padding: 8px 10px;
+        }
+
+        .map-alert-title {
+          display: flex;
+          align-items: center;
+          flex: 0 0 auto;
+          gap: 7px;
+          color: var(--primary-text-color);
+          font-size: 13px;
+          white-space: nowrap;
+        }
+
+        .map-alert-title span {
+          display: grid;
+          place-items: center;
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          background: var(--dmp-bad);
+          color: #fff;
+          font-weight: 900;
+          box-shadow: 0 0 0 0 rgba(212, 54, 54, 0.45);
+          animation: dmp-alert-pulse 1.8s ease-out infinite;
+        }
+
+        .map-alert-list {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          overflow-x: auto;
+          scrollbar-width: thin;
+        }
+
+        .map-alert-list button {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          flex: 0 0 auto;
+          max-width: 280px;
+          min-height: 28px;
+          border: 1px solid rgba(212, 54, 54, 0.45);
+          border-radius: 999px;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          cursor: pointer;
+          font: inherit;
+          font-size: 12px;
+          font-weight: 700;
+          padding: 0 9px;
+        }
+
+        .map-alert-list button:hover {
+          border-color: var(--dmp-bad);
+          color: var(--dmp-bad);
+        }
+
+        .map-alert-list button span {
+          overflow: hidden;
+          max-width: 120px;
+          color: var(--dmp-bad);
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        @keyframes dmp-alert-pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(212, 54, 54, 0.45);
+          }
+          70% {
+            box-shadow: 0 0 0 9px rgba(212, 54, 54, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(212, 54, 54, 0);
+          }
+        }
+
         .align-controls .tool-icon {
           display: grid;
           place-items: center;
@@ -2071,6 +2272,21 @@ class DeviceMapPanel extends HTMLElement {
         .marker.selected {
           outline: 3px solid var(--primary-color, #03a9f4);
           outline-offset: 4px;
+        }
+
+        .marker.jump-focus {
+          outline: 4px solid var(--dmp-bad);
+          outline-offset: 7px;
+          animation: marker-jump-focus 1.4s ease-out 1;
+        }
+
+        @keyframes marker-jump-focus {
+          0%, 100% {
+            transform: translate(calc(var(--marker-size) / -2 - 5px), -50%) scale(1);
+          }
+          35% {
+            transform: translate(calc(var(--marker-size) / -2 - 5px), -50%) scale(1.18);
+          }
         }
 
         .marker span {

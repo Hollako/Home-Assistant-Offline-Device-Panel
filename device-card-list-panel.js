@@ -26,6 +26,7 @@ class OfflineDevicePanel extends HTMLElement {
     this._devices = [];
     this._areas = [];
     this._hass = null;
+    this._boundOutsideClick = (event) => this._handleOutsideClick(event);
   }
 
   setConfig(config) {
@@ -38,6 +39,9 @@ class OfflineDevicePanel extends HTMLElement {
       domains: [],
       integrations: [],
       areas: [],
+      domain_labels: {},
+      integration_labels: {},
+      force_simple: false,
       persist_filters: true,
       ...config,
     };
@@ -58,10 +62,18 @@ class OfflineDevicePanel extends HTMLElement {
     return 6;
   }
 
+  connectedCallback() {
+    document.addEventListener("click", this._boundOutsideClick);
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener("click", this._boundOutsideClick);
+  }
+
   _defaultFilters() {
     return {
       status: "offline",
-      displayMode: this._config?.display_mode === "simple" ? "simple" : "detailed",
+      displayMode: this._config?.force_simple || this._config?.display_mode === "simple" ? "simple" : "detailed",
       domains: [],
       integrations: [],
       areas: [],
@@ -99,7 +111,7 @@ class OfflineDevicePanel extends HTMLElement {
 
   _normalizedFilters(filters) {
     const status = ["offline", "online", "all"].includes(filters.status) ? filters.status : "offline";
-    const displayMode = filters.displayMode === "simple" ? "simple" : "detailed";
+    const displayMode = this._config.force_simple || filters.displayMode === "simple" ? "simple" : "detailed";
     const arrayOrEmpty = (value) => (Array.isArray(value) ? value.filter(Boolean) : []);
 
     return {
@@ -199,6 +211,8 @@ class OfflineDevicePanel extends HTMLElement {
         entityId: row.offlineEntities[0]?.entityId || row.entityId,
         domain: domains.join(", "),
         integration: integrations.join(", "),
+        displayDomain: domains.map((domain) => this._domainLabel(domain)).join(", "),
+        displayIntegration: integrations.map((integration) => this._integrationLabel(integration)).join(", "),
         state: states.join(", "),
         domains,
         integrations,
@@ -218,6 +232,14 @@ class OfflineDevicePanel extends HTMLElement {
     return attr.integration || attr.platform || "unknown";
   }
 
+  _domainLabel(domain) {
+    return this._config.domain_labels?.[domain] || domain;
+  }
+
+  _integrationLabel(integration) {
+    return this._config.integration_labels?.[integration] || integration;
+  }
+
   _isOffline(state) {
     return this._config.offline_states.includes(String(state).toLowerCase());
   }
@@ -234,7 +256,7 @@ class OfflineDevicePanel extends HTMLElement {
       if (!search) return true;
 
       const offlineText = row.offlineEntities.map((entity) => `${entity.name} ${entity.entityId} ${entity.uniqueId}`).join(" ");
-      const haystack = `${row.name} ${row.entityId} ${offlineText} ${row.areaName} ${row.integration} ${row.domain}`.toLowerCase();
+      const haystack = `${row.name} ${row.entityId} ${offlineText} ${row.areaName} ${row.integration} ${row.domain} ${row.displayIntegration} ${row.displayDomain}`.toLowerCase();
       return haystack.includes(search);
     });
   }
@@ -251,6 +273,12 @@ class OfflineDevicePanel extends HTMLElement {
     return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
+  _labeledOptions(rows, key) {
+    return this._options(rows, key)
+      .map((value) => [value, key === "domains" ? this._domainLabel(value) : key === "integrations" ? this._integrationLabel(value) : value])
+      .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
+  }
+
   _groupByArea(rows) {
     return rows.reduce((groups, row) => {
       const key = row.areaName || "No area";
@@ -258,6 +286,12 @@ class OfflineDevicePanel extends HTMLElement {
       groups.get(key).push(row);
       return groups;
     }, new Map());
+  }
+
+  _offlineAreaSummary(rows) {
+    return [...this._groupByArea(rows.filter((row) => row.offline)).entries()]
+      .map(([area, areaRows]) => ({ area, count: areaRows.length }))
+      .sort((a, b) => b.count - a.count || a.area.localeCompare(b.area));
   }
 
   _render(options = {}) {
@@ -268,12 +302,17 @@ class OfflineDevicePanel extends HTMLElement {
     const openMenu = preserveScroll && this._openMulti ? this.shadowRoot.querySelector(`[data-multi-menu="${this._openMulti}"]`) : null;
     const menuScrollTop = openMenu ? openMenu.scrollTop : 0;
     const menuScrollLeft = openMenu ? openMenu.scrollLeft : 0;
+    const activeElement = this.shadowRoot.activeElement;
+    const activeFilter = activeElement?.dataset?.filter || "";
+    const selectionStart = typeof activeElement?.selectionStart === "number" ? activeElement.selectionStart : null;
+    const selectionEnd = typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null;
 
     const allRows = this._deviceRows();
     const rows = this._filteredRows();
     const offlineCount = allRows.filter((row) => row.offline).length;
     const onlineCount = allRows.length - offlineCount;
     const statusText = `${offlineCount} offline / ${onlineCount} online`;
+    const offlineAreas = this._offlineAreaSummary(allRows);
 
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -287,15 +326,20 @@ class OfflineDevicePanel extends HTMLElement {
               ${offlineCount ? "Attention needed" : "All clear"}
             </span>
           </header>
+          ${offlineCount ? this._alertTemplate(offlineCount, offlineAreas) : ""}
 
           <section class="filters">
             ${this._select("status", "Status", this._statusOptions())}
-            ${this._select("displayMode", "Card style", [
-              ["detailed", "Detailed"],
-              ["simple", "Simple"],
-            ])}
-            ${this._multiChoice("domains", "Domains", "All domains", this._options(allRows, "domains"))}
-            ${this._multiChoice("integrations", "Integrations", "All integrations", this._options(allRows, "integrations"))}
+            ${
+              this._config.force_simple
+                ? ""
+                : this._select("displayMode", "Card style", [
+                    ["detailed", "Detailed"],
+                    ["simple", "Simple"],
+                  ])
+            }
+            ${this._multiChoice("domains", "Type", "All types", this._labeledOptions(allRows, "domains"))}
+            ${this._multiChoice("integrations", "Integrations", "All integrations", this._labeledOptions(allRows, "integrations"))}
             ${this._multiChoice("areas", "Areas", "All areas", this._options(allRows, "areaName"))}
             <label class="search">
               <span>Search</span>
@@ -342,10 +386,26 @@ class OfflineDevicePanel extends HTMLElement {
       });
     });
 
+    this.shadowRoot.querySelectorAll("[data-alert-area]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        this._filters.status = "offline";
+        this._filters.areas = [event.currentTarget.dataset.alertArea];
+        this._saveFilters();
+        this._render({ preserveScroll: true });
+      });
+    });
+
     this.shadowRoot.querySelectorAll("[data-multi-details]").forEach((element) => {
       element.addEventListener("toggle", (event) => {
         const key = event.currentTarget.dataset.multiDetails;
-        this._openMulti = event.currentTarget.open ? key : null;
+        if (event.currentTarget.open) {
+          this._openMulti = key;
+          this.shadowRoot.querySelectorAll("[data-multi-details]").forEach((details) => {
+            if (details !== event.currentTarget) details.open = false;
+          });
+        } else if (this._openMulti === key) {
+          this._openMulti = null;
+        }
       });
     });
 
@@ -358,15 +418,38 @@ class OfflineDevicePanel extends HTMLElement {
       });
     });
 
-    if (preserveScroll) {
+    if (preserveScroll || activeFilter) {
       requestAnimationFrame(() => {
-        this._restoreScroll(scrollSnapshots);
+        if (preserveScroll) this._restoreScroll(scrollSnapshots);
+        if (activeFilter) {
+          const restoredInput = this.shadowRoot.querySelector(`[data-filter="${this._cssEscape(activeFilter)}"]`);
+          restoredInput?.focus();
+          if (selectionStart !== null && selectionEnd !== null) {
+            restoredInput?.setSelectionRange?.(selectionStart, selectionEnd);
+          }
+        }
         if (this._openMulti) {
           const restoredMenu = this.shadowRoot.querySelector(`[data-multi-menu="${this._openMulti}"]`);
           if (restoredMenu) restoredMenu.scrollTo(menuScrollLeft, menuScrollTop);
         }
       });
     }
+  }
+
+  _handleOutsideClick(event) {
+    if (!this._openMulti || !this.shadowRoot) return;
+
+    const openDetails = this.shadowRoot.querySelector(`[data-multi-details="${this._cssEscape(this._openMulti)}"]`);
+    if (!openDetails) {
+      this._openMulti = null;
+      return;
+    }
+
+    const path = event.composedPath();
+    if (path.includes(openDetails) || path.some((node) => node?.dataset?.multiDetails === this._openMulti)) return;
+
+    this._openMulti = null;
+    this._render({ preserveScroll: true });
   }
 
   _scrollSnapshots() {
@@ -433,7 +516,9 @@ class OfflineDevicePanel extends HTMLElement {
     const optionHtml = options.length
       ? options
           .map(
-            (value) => `
+            (option) => {
+              const [value, text] = Array.isArray(option) ? option : [option, option];
+              return `
               <label class="check-row">
                 <input
                   type="checkbox"
@@ -441,9 +526,10 @@ class OfflineDevicePanel extends HTMLElement {
                   value="${this._escape(value)}"
                   ${selected.includes(value) ? "checked" : ""}
                 />
-                <span>${this._escape(value)}</span>
+                <span>${this._escape(text)}</span>
               </label>
             `
+            }
           )
           .join("")
       : `<div class="no-options">No options</div>`;
@@ -459,6 +545,32 @@ class OfflineDevicePanel extends HTMLElement {
           </div>
         </details>
       </div>
+    `;
+  }
+
+  _alertTemplate(offlineCount, offlineAreas) {
+    const visibleAreas = offlineAreas.slice(0, 4);
+    const hiddenAreaCount = Math.max(0, offlineAreas.length - visibleAreas.length);
+    return `
+      <section class="alert-panel" aria-label="Offline device alert">
+        <span class="alert-icon">!</span>
+        <div class="alert-copy">
+          <strong>${this._escape(offlineCount)} offline ${offlineCount === 1 ? "device" : "devices"}</strong>
+          <span>${this._escape(offlineAreas.length)} affected ${offlineAreas.length === 1 ? "area" : "areas"}</span>
+        </div>
+        <div class="alert-areas">
+          ${visibleAreas
+            .map(
+              ({ area, count }) => `
+          <button type="button" data-alert-area="${this._escape(area)}">
+            ${this._escape(area)} <span>${this._escape(count)}</span>
+          </button>
+          `
+            )
+            .join("")}
+          ${hiddenAreaCount ? `<span class="more-areas">+${this._escape(hiddenAreaCount)} more</span>` : ""}
+        </div>
+      </section>
     `;
   }
 
@@ -495,12 +607,12 @@ class OfflineDevicePanel extends HTMLElement {
         </span>
         ${
           simple
-            ? `<span class="simple-meta">${this._escape(row.domain || row.integration)}</span>`
+            ? `<span class="simple-meta">${this._escape(row.displayDomain || row.displayIntegration)}</span>`
             : `
         <span class="meta">${row.offlineEntities.length ? this._offlineEntityDetails(row.offlineEntities) : this._escape(`${row.entityCount} entities`)}</span>
               <span class="details">
-                <span>${this._escape(row.domain)}</span>
-                <span>${this._escape(row.integration)}</span>
+                <span>${this._escape(row.displayDomain)}</span>
+                <span>${this._escape(row.displayIntegration)}</span>
                 <span>${this._escape(row.offlineEntities.length ? `${row.offlineEntities.length} offline` : row.state)}</span>
               </span>
               <span class="changed">Changed: ${this._escape(changed)}</span>
@@ -530,6 +642,10 @@ class OfflineDevicePanel extends HTMLElement {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  _cssEscape(value) {
+    return window.CSS?.escape ? CSS.escape(String(value)) : String(value).replace(/"/g, '\\"');
   }
 
   _styles() {
@@ -590,6 +706,102 @@ class OfflineDevicePanel extends HTMLElement {
         .badge.bad {
           color: var(--odp-bad);
           background: var(--odp-bad-soft);
+        }
+
+        .alert-panel {
+          display: grid;
+          grid-template-columns: auto minmax(160px, auto) 1fr;
+          align-items: center;
+          gap: 12px;
+          margin: -4px 0 16px;
+          border: 1px solid rgba(212, 54, 54, 0.45);
+          border-radius: 8px;
+          background: linear-gradient(90deg, rgba(212, 54, 54, 0.18), rgba(212, 54, 54, 0.07));
+          padding: 10px 12px;
+        }
+
+        .alert-icon {
+          display: grid;
+          place-items: center;
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          background: var(--odp-bad);
+          color: #fff;
+          font-size: 18px;
+          font-weight: 900;
+          box-shadow: 0 0 0 0 rgba(212, 54, 54, 0.45);
+          animation: alert-pulse 1.8s ease-out infinite;
+        }
+
+        .alert-copy {
+          display: grid;
+          gap: 2px;
+        }
+
+        .alert-copy strong {
+          color: var(--primary-text-color);
+          font-size: 14px;
+        }
+
+        .alert-copy span,
+        .more-areas {
+          color: var(--odp-muted);
+          font-size: 12px;
+          font-weight: 650;
+        }
+
+        .alert-areas {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .alert-areas button,
+        .more-areas {
+          min-height: 28px;
+          border-radius: 999px;
+          padding: 0 9px;
+        }
+
+        .alert-areas button {
+          border: 1px solid rgba(212, 54, 54, 0.45);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          cursor: pointer;
+          font: inherit;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .alert-areas button:hover {
+          border-color: var(--odp-bad);
+          color: var(--odp-bad);
+        }
+
+        .alert-areas button span {
+          color: var(--odp-bad);
+          margin-left: 4px;
+        }
+
+        .more-areas {
+          display: inline-grid;
+          place-items: center;
+          border: 1px solid var(--odp-border);
+        }
+
+        @keyframes alert-pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(212, 54, 54, 0.45);
+          }
+          70% {
+            box-shadow: 0 0 0 9px rgba(212, 54, 54, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(212, 54, 54, 0);
+          }
         }
 
         .filters {
@@ -858,6 +1070,15 @@ class OfflineDevicePanel extends HTMLElement {
           header, .area-title {
             align-items: flex-start;
             flex-direction: column;
+          }
+
+          .alert-panel {
+            grid-template-columns: auto 1fr;
+          }
+
+          .alert-areas {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
           }
 
           .filters {
