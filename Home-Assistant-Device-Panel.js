@@ -22,6 +22,7 @@ class OfflineDevicePanel extends HTMLElement {
     this._config = {};
     this._filters = this._defaultFilters();
     this._openMulti = null;
+    this._alertExpanded = false;
     this._registriesLoaded = false;
     this._entities = [];
     this._devices = [];
@@ -396,6 +397,13 @@ class OfflineDevicePanel extends HTMLElement {
       });
     });
 
+    this.shadowRoot.querySelectorAll("[data-alert-more]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this._alertExpanded = !this._alertExpanded;
+        this._render({ preserveScroll: true });
+      });
+    });
+
     this.shadowRoot.querySelectorAll("[data-multi-details]").forEach((element) => {
       element.addEventListener("toggle", (event) => {
         const key = event.currentTarget.dataset.multiDetails;
@@ -550,7 +558,7 @@ class OfflineDevicePanel extends HTMLElement {
   }
 
   _alertTemplate(offlineCount, offlineAreas) {
-    const visibleAreas = offlineAreas.slice(0, 4);
+    const visibleAreas = this._alertExpanded ? offlineAreas : offlineAreas.slice(0, 8);
     const hiddenAreaCount = Math.max(0, offlineAreas.length - visibleAreas.length);
     return `
       <section class="alert-panel" aria-label="Offline device alert">
@@ -569,7 +577,13 @@ class OfflineDevicePanel extends HTMLElement {
           `
             )
             .join("")}
-          ${hiddenAreaCount ? `<span class="more-areas">+${this._escape(hiddenAreaCount)} more</span>` : ""}
+          ${
+            hiddenAreaCount
+              ? `<button type="button" class="more-areas" data-alert-more>+${this._escape(hiddenAreaCount)} more</button>`
+              : this._alertExpanded && offlineAreas.length > 8
+                ? `<button type="button" class="more-areas" data-alert-more>Show less</button>`
+                : ""
+          }
         </div>
       </section>
     `;
@@ -760,8 +774,7 @@ class OfflineDevicePanel extends HTMLElement {
           min-width: 0;
         }
 
-        .alert-areas button,
-        .more-areas {
+        .alert-areas button {
           min-height: 28px;
           border-radius: 999px;
           padding: 0 9px;
@@ -788,9 +801,14 @@ class OfflineDevicePanel extends HTMLElement {
         }
 
         .more-areas {
-          display: inline-grid;
-          place-items: center;
+          border-color: var(--odp-border);
+          color: var(--odp-muted);
+          font-weight: 800;
+        }
+
+        .more-areas:hover {
           border: 1px solid var(--odp-border);
+          color: var(--primary-text-color);
         }
 
         @keyframes alert-pulse {
@@ -1164,6 +1182,7 @@ class DeviceMapPanel extends HTMLElement {
       left: 0,
       top: 0,
     };
+    this._mapAlertScrollLeft = 0;
     this._deviceListScrollTop = 0;
     this._isPanning = false;
     this._selectedMarkers = new Set();
@@ -1684,6 +1703,7 @@ class DeviceMapPanel extends HTMLElement {
     if (!this.shadowRoot) return;
 
     this._captureMapScroll();
+    this._captureMapAlertScroll();
     this._captureDeviceListScroll();
     const activeElement = this.shadowRoot.activeElement;
     const activeFilter = activeElement?.dataset?.filter || "";
@@ -1840,6 +1860,7 @@ class DeviceMapPanel extends HTMLElement {
     this._attachEvents();
     requestAnimationFrame(() => {
       this._restoreMapScroll();
+      this._restoreMapAlertScroll();
       this._restoreDeviceListScroll();
       const activeSelector = activeFilter
         ? `[data-filter="${this._cssEscape(activeFilter)}"]`
@@ -1937,6 +1958,11 @@ class DeviceMapPanel extends HTMLElement {
         });
       }
       this._attachPanEvents(map);
+    }
+
+    const mapAlertList = this.shadowRoot.querySelector(".map-alert-list");
+    if (mapAlertList) {
+      mapAlertList.addEventListener("scroll", () => this._captureMapAlertScroll());
     }
 
     const deviceList = this.shadowRoot.querySelector(".devices");
@@ -2190,6 +2216,18 @@ class DeviceMapPanel extends HTMLElement {
     if (!map) return;
     map.scrollLeft = this._mapScroll.left;
     map.scrollTop = this._mapScroll.top;
+  }
+
+  _captureMapAlertScroll() {
+    const mapAlertList = this.shadowRoot?.querySelector(".map-alert-list");
+    if (!mapAlertList) return;
+    this._mapAlertScrollLeft = mapAlertList.scrollLeft;
+  }
+
+  _restoreMapAlertScroll() {
+    const mapAlertList = this.shadowRoot?.querySelector(".map-alert-list");
+    if (!mapAlertList) return;
+    mapAlertList.scrollLeft = this._mapAlertScrollLeft;
   }
 
   _captureDeviceListScroll() {
@@ -3197,8 +3235,8 @@ class DeviceMapPanel extends HTMLElement {
 
         .distribute-vertical {
           background:
-            linear-gradient(var(--block-color), var(--block-color)) 6px 7px / 10px 4px no-repeat,
-            linear-gradient(var(--block-color), var(--block-color)) 6px 14px / 10px 4px no-repeat;
+            linear-gradient(var(--block-color), var(--block-color)) 6px 6px / 10px 4px no-repeat,
+            linear-gradient(var(--block-color), var(--block-color)) 6px 12px / 10px 4px no-repeat;
         }
 
         .align-controls button:disabled {
