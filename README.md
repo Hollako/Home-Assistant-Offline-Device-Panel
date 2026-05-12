@@ -27,6 +27,8 @@ url: /hacsfiles/Home-Assistant-Device-Panel/Home-Assistant-Device-Panel.js
 type: module
 ```
 
+The main resource forwards the HACS cache tag to the internal card files automatically, so HACS updates refresh `device-card-list-panel.js` and `device-map-panel.js` together with the loader.
+
 7. Add a manual Lovelace card:
 
 ```yaml

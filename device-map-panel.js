@@ -586,6 +586,7 @@ class DeviceMapPanel extends HTMLElement {
             isEditing && !this._sidebarCollapsed
               ? `
           <aside>
+            <div class="sidebar-status">${this._escape(modeLabel)} - ${placedRows.length} placed / ${offlineCount} offline</div>
             <section class="filters">
               ${this._select("status", "Status", [
                 ["all", "All devices"],
@@ -1400,7 +1401,7 @@ class DeviceMapPanel extends HTMLElement {
           position: sticky;
           top: 12px;
           display: grid;
-          grid-template-rows: auto auto minmax(320px, 1fr) auto;
+          grid-template-rows: auto auto auto minmax(320px, 1fr) auto;
           gap: 8px;
           min-width: 0;
           height: calc(100vh - 24px);
@@ -1425,6 +1426,13 @@ class DeviceMapPanel extends HTMLElement {
           color: var(--dmp-muted);
           font-size: 13px;
           margin-top: 4px;
+        }
+
+        .sidebar-status {
+          color: var(--dmp-muted);
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.25;
         }
 
         .filters, .bulk-actions {
@@ -1633,9 +1641,12 @@ class DeviceMapPanel extends HTMLElement {
           z-index: 4;
           top: 12px;
           display: flex;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
           align-items: center;
           gap: 10px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: thin;
           width: calc(100% - 24px);
           max-width: calc(100% - 24px);
           margin: 12px;
@@ -1647,8 +1658,9 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .toolbar-title {
-          flex: 1 1 160px;
+          flex: 0 1 260px;
           min-width: 0;
+          max-width: 320px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -1661,10 +1673,10 @@ class DeviceMapPanel extends HTMLElement {
         .floor-switch {
           display: flex;
           align-items: center;
-          flex: 1 1 280px;
+          flex: 0 1 260px;
           gap: 6px;
-          min-width: 260px;
-          max-width: 460px;
+          min-width: 180px;
+          max-width: 280px;
         }
 
         .floor-switch select {
@@ -1678,11 +1690,14 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .mode-switch {
+          flex: 0 0 auto;
           display: flex;
           gap: 4px;
+          margin-left: auto;
         }
 
         .align-controls {
+          flex: 0 0 auto;
           display: flex;
           align-items: center;
           gap: 4px;
@@ -1712,6 +1727,7 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .sidebar-toggle {
+          flex: 0 0 auto;
           border-left: 1px solid var(--dmp-border);
           color: var(--primary-text-color);
           white-space: nowrap;
@@ -1880,6 +1896,7 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .zoom-controls {
+          flex: 0 0 auto;
           display: flex;
           align-items: center;
           gap: 4px;
@@ -1912,11 +1929,12 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .display-controls {
+          flex: 0 0 auto;
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 8px;
           width: auto;
-          min-width: 220px;
+          min-width: 190px;
           border-left: 1px solid var(--dmp-border);
           border-right: 1px solid var(--dmp-border);
           margin-left: 4px;
@@ -1939,7 +1957,7 @@ class DeviceMapPanel extends HTMLElement {
 
         .display-controls input[type="range"] {
           min-height: 20px;
-          min-width: 90px;
+          min-width: 72px;
         }
 
         .display-controls .toolbar-toggle {
@@ -2165,20 +2183,20 @@ class DeviceMapPanel extends HTMLElement {
           }
 
           .map-toolbar {
-            grid-template-columns: 1fr;
+            flex-wrap: nowrap;
             width: auto;
           }
 
           .align-controls {
             border-left: 0;
-            border-top: 1px solid var(--dmp-border);
-            flex-wrap: wrap;
+            border-top: 0;
+            flex-wrap: nowrap;
             padding-left: 0;
-            padding-top: 6px;
+            padding-top: 0;
           }
 
           .floor-switch {
-            width: 100%;
+            width: auto;
           }
 
           .floor-switch select {
@@ -2186,15 +2204,14 @@ class DeviceMapPanel extends HTMLElement {
           }
 
           .display-controls {
-            width: 100%;
-            min-width: 0;
+            width: auto;
+            min-width: 190px;
             border-left: 0;
             border-right: 0;
-            border-top: 1px solid var(--dmp-border);
-            border-bottom: 1px solid var(--dmp-border);
+            border-top: 0;
+            border-bottom: 0;
             margin-left: 0;
-            padding-left: 0;
-            padding: 6px 0;
+            padding: 0;
           }
         }
       </style>
