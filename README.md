@@ -28,7 +28,7 @@ url: /hacsfiles/Home-Assistant-Device-Panel/Home-Assistant-Device-Panel.js
 type: module
 ```
 
-The main resource forwards the HACS cache tag to the internal card files automatically, so HACS updates refresh `device-card-list-panel.js` and `device-map-panel.js` together with the loader.
+The HACS release uses a single JavaScript file, so updates only need to refresh `Home-Assistant-Device-Panel.js`.
 
 7. Add a manual Lovelace card:
 
@@ -44,7 +44,7 @@ offline_states:
 
 ## Manual Install
 
-1. Copy `Home-Assistant-Device-Panel.js`, `device-card-list-panel.js`, and `device-map-panel.js` to your Home Assistant `config/www/` folder.
+1. Copy `Home-Assistant-Device-Panel.js` to your Home Assistant `config/www/` folder.
 2. In Home Assistant, go to **Settings > Dashboards > Resources**.
 3. Add the resources you want to use:
 
@@ -67,7 +67,7 @@ offline_states:
 
 ## Device Map Panel
 
-Use `device-map-panel.js` when you want to place devices on a drawing or floor plan.
+Use `custom:device-map-panel` when you want to place devices on a drawing or floor plan.
 
 ```yaml
 type: custom:device-map-panel
