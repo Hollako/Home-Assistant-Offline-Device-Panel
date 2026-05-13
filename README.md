@@ -108,7 +108,13 @@ Hold Shift and drag on empty map space to draw a selection box around multiple m
 
 Press Delete or Backspace in Edit Mode to remove the selected markers.
 
-Use **Scatter visible unplaced** in Edit Mode to automatically place the currently filtered unplaced devices across the floor plan before manually rearranging them.
+Press Ctrl+Z or Cmd+Z in Edit Mode to undo the last marker layout change on the current floor.
+
+Use the translucent arrow pad in the bottom-right of the map to nudge selected markers up, down, left, or right.
+
+Use the **Step** field on the arrow pad to control how far each arrow click moves the selected marker or group. The value is a percentage of the floorplan size.
+
+Use **Add visible unplaced** in Edit Mode to automatically place the currently filtered unplaced devices across the floor plan before manually rearranging them.
 
 Use the map zoom controls to zoom from 50% to 400%. The drawing and markers scale together, and marker positions stay aligned while zoomed.
 
