@@ -2655,8 +2655,19 @@ class DeviceMapPanel extends HTMLElement {
     const content = this.shadowRoot?.querySelector(".map-content");
     const slider = this.shadowRoot?.querySelector("[data-zoom-slider]");
     const output = this.shadowRoot?.querySelector("[data-zoom-output]");
+    const centerX = map?.scrollWidth ? (map.scrollLeft + map.clientWidth / 2) / map.scrollWidth : 0.5;
+    const centerY = map?.scrollHeight ? (map.scrollTop + map.clientHeight / 2) / map.scrollHeight : 0.5;
     if (content) content.style.width = `${zoomPercent}%`;
-    if (map) map.classList.toggle("zoomed-out", this._zoom < 1);
+    if (map) {
+      map.classList.toggle("zoomed-out", this._zoom < 1);
+      const maxLeft = Math.max(0, map.scrollWidth - map.clientWidth);
+      const maxTop = Math.max(0, map.scrollHeight - map.clientHeight);
+      const targetLeft = centerX * map.scrollWidth - map.clientWidth / 2;
+      const targetTop = centerY * map.scrollHeight - map.clientHeight / 2;
+      map.scrollLeft = Math.max(0, Math.min(maxLeft, targetLeft));
+      map.scrollTop = Math.max(0, Math.min(maxTop, targetTop));
+      this._captureMapScroll();
+    }
     if (slider) slider.value = String(zoomPercent);
     if (output) output.textContent = `${zoomPercent}%`;
     this._positionNudgePad();
