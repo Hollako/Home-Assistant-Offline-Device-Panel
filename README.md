@@ -98,6 +98,8 @@ When `floors` is configured, the top bar shows a floor selector. Each floor has 
 
 The card shows a sidebar with all devices. Filter the list, then drag devices from the sidebar onto the drawing. Drag an existing marker to move it, or use **Remove** in the sidebar to remove it from the map.
 
+The map places entities individually, so multi-entity devices such as occupancy sensors with lights, switches, presets, and motion sensors can have separate markers that open the correct Home Assistant more-info panel.
+
 The map opens in **User Mode** by default, which shows only the drawing and device markers. Home Assistant admin users can switch to **Edit Mode** to see the sidebar, filters, drag-and-drop tools, remove buttons, and YAML export. Non-admin Home Assistant users cannot enter Edit Mode.
 
 In Edit Mode, use **Hide Sidebar** in the top bar to collapse the sidebar and give the floorplan more space. Use **Show Sidebar** to bring it back.

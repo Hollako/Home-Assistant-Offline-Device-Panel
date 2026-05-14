@@ -1310,7 +1310,7 @@ class DeviceMapPanel extends HTMLElement {
     const entityRegistry = new Map(this._entities.map((entity) => [entity.entity_id, entity]));
     const deviceRegistry = new Map(this._devices.map((device) => [device.id, device]));
     const areaRegistry = new Map(this._areas.map((area) => [area.area_id || area.id, area]));
-    const grouped = new Map();
+    const rows = [];
 
     for (const [entityId, stateObj] of Object.entries(this._hass.states)) {
       const domain = entityId.split(".")[0];
@@ -1326,76 +1326,38 @@ class DeviceMapPanel extends HTMLElement {
       const areaName = area?.name || stateObj.attributes?.area || (areaId === "unknown" ? "No area" : areaId);
       if (this._config.areas.length && !this._config.areas.includes(areaName) && !this._config.areas.includes(areaId)) continue;
 
-      const key = entity?.device_id || entityId;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          key,
-          entityId,
-          name: device?.name_by_user || device?.name || stateObj.attributes?.friendly_name || entityId,
-          offline: false,
-          domains: new Set(),
-          integrations: new Set(),
-          states: new Set(),
-          icons: new Set(),
-          deviceClasses: new Set(),
-          primaryState: stateObj.state,
-          primaryDomain: domain,
-          primaryDeviceClass: stateObj.attributes?.device_class || "",
-          offlineEntities: [],
-          entityCount: 0,
-          areaId,
-          areaName,
-          lastChanged: stateObj.last_changed,
-        });
-      }
-
-      const row = grouped.get(key);
       const isOffline = this._isOffline(stateObj.state);
-      row.offline = row.offline || isOffline;
-      row.domains.add(domain);
-      row.integrations.add(integration);
-      row.states.add(stateObj.state);
-      if (stateObj.attributes?.icon) row.icons.add(stateObj.attributes.icon);
-      if (stateObj.attributes?.device_class) row.deviceClasses.add(stateObj.attributes.device_class);
-      row.entityCount += 1;
-      if (isOffline) {
-        row.offlineEntities.push({
-          entityId,
-          name: stateObj.attributes?.friendly_name || entity?.name || entityId,
-        });
-      }
-      if (isOffline || !row.lastChanged || new Date(stateObj.last_changed) > new Date(row.lastChanged)) {
-        row.lastChanged = stateObj.last_changed;
-      }
+      const deviceName = device?.name_by_user || device?.name || "";
+      const name = stateObj.attributes?.friendly_name || entity?.name || entity?.original_name || entityId;
+      const icon = stateObj.attributes?.icon || "";
+      const deviceClass = stateObj.attributes?.device_class || "";
 
-      if (row.entityId === entityId || isOffline || (!row.offline && row.primaryState == null)) {
-        row.primaryState = stateObj.state;
-        row.primaryDomain = domain;
-        row.primaryDeviceClass = stateObj.attributes?.device_class || "";
-      }
+      rows.push({
+        key: entityId,
+        entityId,
+        name,
+        deviceName,
+        offline: isOffline,
+        domain,
+        integration,
+        state: stateObj.state,
+        domains: [domain],
+        integrations: [integration],
+        states: [stateObj.state],
+        icons: icon ? [icon] : [],
+        deviceClasses: deviceClass ? [deviceClass] : [],
+        primaryState: stateObj.state,
+        primaryDomain: domain,
+        primaryDeviceClass: deviceClass,
+        offlineEntities: isOffline ? [{ entityId, name }] : [],
+        entityCount: 1,
+        areaId,
+        areaName,
+        lastChanged: stateObj.last_changed,
+      });
     }
 
-    return [...grouped.values()]
-      .map((row) => {
-        const domains = [...row.domains].sort((a, b) => a.localeCompare(b));
-        const integrations = [...row.integrations].sort((a, b) => a.localeCompare(b));
-        const states = [...row.states].sort((a, b) => a.localeCompare(b));
-        const icons = [...row.icons].sort((a, b) => a.localeCompare(b));
-        const deviceClasses = [...row.deviceClasses].sort((a, b) => a.localeCompare(b));
-        return {
-          ...row,
-          entityId: row.offlineEntities[0]?.entityId || row.entityId,
-          domain: domains.join(", "),
-          integration: integrations.join(", "),
-          state: states.join(", "),
-          domains,
-          integrations,
-          states,
-          icons,
-          deviceClasses,
-        };
-      })
-      .sort((a, b) => a.areaName.localeCompare(b.areaName) || a.name.localeCompare(b.name));
+    return rows.sort((a, b) => a.areaName.localeCompare(b.areaName) || a.name.localeCompare(b.name));
   }
 
   _integration(entity, stateObj) {
@@ -1587,11 +1549,11 @@ class DeviceMapPanel extends HTMLElement {
 
   _markersFromList(markersList) {
     return (markersList || []).reduce((markers, marker) => {
-      const key = marker.key || marker.device || marker.entity;
+      const key = marker.entity || marker.key || marker.device;
       if (!key) return markers;
       markers[key] = {
         key,
-        entityId: marker.entity || "",
+        entityId: marker.entity || key,
         name: marker.name || "",
         icon: marker.icon || "",
         x: Number(marker.x),
@@ -1606,9 +1568,11 @@ class DeviceMapPanel extends HTMLElement {
       const x = Number(marker.x);
       const y = Number(marker.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return result;
-      result[key] = {
-        key,
-        entityId: marker.entityId || marker.entity || "",
+      const entityId = marker.entityId || marker.entity || key;
+      const markerKey = entityId || key;
+      result[markerKey] = {
+        key: markerKey,
+        entityId,
         name: marker.name || "",
         icon: marker.icon || "",
         x: Math.max(0, Math.min(100, x)),
@@ -2721,7 +2685,7 @@ class DeviceMapPanel extends HTMLElement {
         <span class="dot"><ha-icon icon="${this._escape(icon)}"></ha-icon></span>
         <span class="device-text">
           <strong>${this._escape(row.name)}</strong>
-          <small>${this._escape(row.areaName)} - ${this._escape(row.domain || row.integration)}</small>
+          <small>${this._escape(row.areaName)} - ${this._escape(row.deviceName || row.domain || row.integration)}</small>
         </span>
         ${
           placed
