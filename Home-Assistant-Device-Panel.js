@@ -1789,16 +1789,18 @@ class DeviceMapPanel extends HTMLElement {
                   : ""
               }
               <div class="zoom-controls" aria-label="Map zoom">
-                <button type="button" data-zoom="out" title="Zoom out">-</button>
-                <span>${Math.round(this._zoom * 100)}%</span>
-                <button type="button" data-zoom="in" title="Zoom in">+</button>
+                <span>Zoom</span>
+                <input data-zoom-slider type="range" min="50" max="400" step="10" value="${this._escape(Math.round(this._zoom * 100))}" title="Map zoom" />
+                <output data-zoom-output>${Math.round(this._zoom * 100)}%</output>
                 <button type="button" data-zoom="reset" title="Reset zoom">Reset</button>
               </div>
               <div class="display-controls" aria-label="Marker display">
-                <label title="Marker size">
+                <div class="marker-size-stepper" title="Marker size">
                   <span>Size</span>
-                  <input data-display="markerSize" type="range" min="12" max="48" step="2" value="${this._escape(this._display.markerSize)}" />
-                </label>
+                  <button type="button" data-marker-size="down" title="Smaller markers" aria-label="Smaller markers">-</button>
+                  <output>${this._escape(this._display.markerSize)}</output>
+                  <button type="button" data-marker-size="up" title="Bigger markers" aria-label="Bigger markers">+</button>
+                </div>
                 <label class="toolbar-toggle" title="Show marker names">
                   <input data-display="showLabels" type="checkbox" ${this._display.showLabels ? "checked" : ""} />
                   <span>Names</span>
@@ -1953,8 +1955,24 @@ class DeviceMapPanel extends HTMLElement {
       element.addEventListener("click", (event) => {
         const action = event.currentTarget.dataset.zoom;
         if (action === "reset") this._zoom = 1;
-        if (action === "in") this._zoom = Math.min(4, Math.round((this._zoom + 0.1) * 10) / 10);
-        if (action === "out") this._zoom = Math.max(0.5, Math.round((this._zoom - 0.1) * 10) / 10);
+        this._applyZoomToDom();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-zoom-slider]").forEach((element) => {
+      element.addEventListener("input", (event) => {
+        const value = Number(event.currentTarget.value);
+        this._zoom = Math.max(0.5, Math.min(4, value / 100));
+        this._applyZoomToDom();
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-marker-size]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        const direction = event.currentTarget.dataset.markerSize === "up" ? 2 : -2;
+        this._display.markerSize = Number(this._display.markerSize || 18) + direction;
+        this._display = this._normalizedDisplay(this._display);
+        this._saveDisplay();
         this._render();
       });
     });
@@ -1962,7 +1980,6 @@ class DeviceMapPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-display]").forEach((element) => {
       element.addEventListener("input", (event) => {
         const key = event.currentTarget.dataset.display;
-        if (key === "markerSize") this._display.markerSize = Number(event.currentTarget.value);
         if (key === "showLabels") this._display.showLabels = event.currentTarget.checked;
         if (key === "nudgeStep") this._display.nudgeStep = Number(event.currentTarget.value);
         this._display = this._normalizedDisplay(this._display);
@@ -2630,6 +2647,19 @@ class DeviceMapPanel extends HTMLElement {
     this._selectionBox = null;
     this._pendingMarkerFocus = markerKey;
     this._render();
+  }
+
+  _applyZoomToDom() {
+    const zoomPercent = Math.round(this._zoom * 100);
+    const map = this.shadowRoot?.querySelector("[data-map]");
+    const content = this.shadowRoot?.querySelector(".map-content");
+    const slider = this.shadowRoot?.querySelector("[data-zoom-slider]");
+    const output = this.shadowRoot?.querySelector("[data-zoom-output]");
+    if (content) content.style.width = `${zoomPercent}%`;
+    if (map) map.classList.toggle("zoomed-out", this._zoom < 1);
+    if (slider) slider.value = String(zoomPercent);
+    if (output) output.textContent = `${zoomPercent}%`;
+    this._positionNudgePad();
   }
 
   _focusMarker(markerKey) {
@@ -3422,10 +3452,11 @@ class DeviceMapPanel extends HTMLElement {
           flex: 0 0 auto;
           display: flex;
           align-items: center;
-          gap: 4px;
+          gap: 8px;
         }
 
-        .zoom-controls button {
+        .zoom-controls button,
+        .marker-size-stepper button {
           border: 0;
           border-radius: 6px;
           background: transparent;
@@ -3439,11 +3470,26 @@ class DeviceMapPanel extends HTMLElement {
           padding: 0 8px;
         }
 
-        .zoom-controls button:hover {
+        .zoom-controls button:hover,
+        .marker-size-stepper button:hover {
           background: var(--secondary-background-color, #f7f8fa);
         }
 
-        .zoom-controls span {
+        .zoom-controls span,
+        .display-controls span {
+          color: var(--dmp-muted);
+          font-size: 12px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .zoom-controls input[type="range"] {
+          width: 120px;
+          min-width: 80px;
+        }
+
+        .zoom-controls output,
+        .marker-size-stepper output {
           color: var(--dmp-muted);
           font-size: 12px;
           font-weight: 700;
@@ -3457,7 +3503,7 @@ class DeviceMapPanel extends HTMLElement {
           align-items: center;
           gap: 8px;
           width: auto;
-          min-width: 190px;
+          min-width: 150px;
           border-left: 1px solid var(--dmp-border);
           border-right: 1px solid var(--dmp-border);
           margin-left: 4px;
@@ -3472,15 +3518,15 @@ class DeviceMapPanel extends HTMLElement {
           min-width: 0;
         }
 
-        .display-controls span {
-          color: var(--dmp-muted);
-          font-size: 12px;
-          font-weight: 700;
+        .marker-size-stepper {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          white-space: nowrap;
         }
 
-        .display-controls input[type="range"] {
-          min-height: 20px;
-          min-width: 72px;
+        .marker-size-stepper output {
+          min-width: 24px;
         }
 
         .display-controls .toolbar-toggle {
@@ -3852,7 +3898,7 @@ class DeviceMapPanel extends HTMLElement {
 
           .display-controls {
             width: auto;
-            min-width: 190px;
+            min-width: 150px;
             border-left: 0;
             border-right: 0;
             border-top: 0;
