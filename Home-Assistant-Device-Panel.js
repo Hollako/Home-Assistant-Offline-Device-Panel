@@ -3659,7 +3659,8 @@ class DeviceMapPanel extends HTMLElement {
           display: flex;
           align-items: center;
           gap: 6px;
-          max-width: 210px;
+          max-width: min(240px, 42vw);
+          min-width: 0;
           border: 0;
           border-radius: 999px;
           background: var(--card-background-color, #fff);
@@ -3715,9 +3716,13 @@ class DeviceMapPanel extends HTMLElement {
 
         .marker span {
           display: grid;
+          flex: 0 0 var(--marker-size);
           place-items: center;
           width: var(--marker-size);
           height: var(--marker-size);
+          min-width: var(--marker-size);
+          min-height: var(--marker-size);
+          border-radius: 50%;
           box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 13px rgba(29, 143, 95, 0.78);
           line-height: 0;
         }
@@ -3765,7 +3770,9 @@ class DeviceMapPanel extends HTMLElement {
         }
 
         .marker strong {
-          max-width: 170px;
+          display: block;
+          min-width: 0;
+          max-width: calc(240px - var(--marker-size) - 24px);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
