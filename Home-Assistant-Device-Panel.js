@@ -1,4 +1,4 @@
-const VERSION = "1.0.8";
+const VERSION = "1.0.9";
 class OfflineDevicePanel extends HTMLElement {
   static getConfigElement() {
     return document.createElement("offline-device-panel-editor");
@@ -1165,6 +1165,8 @@ class DeviceMapPanel extends HTMLElement {
     this._markers = {};
     this._filters = {
       status: "all",
+      placementStatus: "all",
+      connectionStatus: "all",
       domain: "all",
       integration: "all",
       area: "all",
@@ -1468,11 +1470,14 @@ class DeviceMapPanel extends HTMLElement {
 
   _filteredRows(rows) {
     const search = this._filters.search.trim().toLowerCase();
+    const placementStatus = this._filters.placementStatus || (["placed", "unplaced"].includes(this._filters.status) ? this._filters.status : "all");
+    const connectionStatus = this._filters.connectionStatus || (["offline", "online"].includes(this._filters.status) ? this._filters.status : "all");
+
     return rows.filter((row) => {
-      if (this._filters.status === "placed" && !this._markers[row.key]) return false;
-      if (this._filters.status === "unplaced" && this._markers[row.key]) return false;
-      if (this._filters.status === "offline" && !row.offline) return false;
-      if (this._filters.status === "online" && row.offline) return false;
+      if (placementStatus === "placed" && !this._markers[row.key]) return false;
+      if (placementStatus === "unplaced" && this._markers[row.key]) return false;
+      if (connectionStatus === "offline" && !row.offline) return false;
+      if (connectionStatus === "online" && row.offline) return false;
       if (this._filters.domain !== "all" && !row.domains.includes(this._filters.domain)) return false;
       if (this._filters.integration !== "all" && !row.integrations.includes(this._filters.integration)) return false;
       if (this._filters.area !== "all" && row.areaName !== this._filters.area) return false;
@@ -1742,14 +1747,17 @@ class DeviceMapPanel extends HTMLElement {
           <aside>
             <div class="sidebar-status">${this._escape(modeLabel)} - ${placedRows.length} placed / ${offlineCount} offline</div>
             <section class="filters">
-              ${this._select("status", "Status", [
-                ["all", "All devices"],
+              ${this._select("placementStatus", "Placement", [
+                ["all", "All placements"],
                 ["placed", "Placed"],
                 ["unplaced", "Unplaced"],
+              ])}
+              ${this._select("connectionStatus", "Status", [
+                ["all", "All statuses"],
                 ["offline", "Offline"],
                 ["online", "Online"],
               ])}
-              ${this._select("domain", "Domain", [["all", "All domains"], ...this._options(rows, "domains").map((value) => [value, value])])}
+              ${this._select("domain", "Type", [["all", "All types"], ...this._options(rows, "domains").map((value) => [value, value])])}
               ${this._select("integration", "Integration", [["all", "All integrations"], ...this._options(rows, "integrations").map((value) => [value, value])])}
               ${this._select("area", "Area", [["all", "All areas"], ...this._options(rows, "areaName").map((value) => [value, value])])}
               <label>
