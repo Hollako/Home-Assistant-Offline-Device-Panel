@@ -71,6 +71,8 @@ Both cards include a visual Lovelace editor for the common options, including ti
 
 Domains, integrations, and areas can be selected from checkbox lists populated from the current Home Assistant entities and registries. Leaving a list empty means the card includes all values for that option.
 
+Both editors also include optional custom-name fields beside domains and integrations. Empty custom-name fields use the default Home Assistant/domain name.
+
 The Device Map Panel keeps floor images and marker layout in a YAML field inside the visual editor. Use **Floors and Markers** for the `floors:` layout, then apply it from the editor. You can still use the map's **Export YAML** tool after placing markers.
 
 ## Device Map Panel

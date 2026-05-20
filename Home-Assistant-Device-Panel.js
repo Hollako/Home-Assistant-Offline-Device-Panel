@@ -1,4 +1,4 @@
-const VERSION = "1.1.4";
+const VERSION = "1.1.6";
 class OfflineDevicePanel extends HTMLElement {
   static getConfigElement() {
     return document.createElement("offline-device-panel-editor");
@@ -274,6 +274,12 @@ class OfflineDevicePanel extends HTMLElement {
       return Array.isArray(value) ? value : [value];
     });
     return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  _labeledOptions(rows, key) {
+    return this._options(rows, key)
+      .map((value) => [value, key === "domains" ? this._domainLabel(value) : key === "integrations" ? this._integrationLabel(value) : value])
+      .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
   }
 
   _labeledOptions(rows, key) {
@@ -1190,17 +1196,25 @@ class DevicePanelConfigEditor extends HTMLElement {
     `;
   }
 
-  _multiPicker(key, label, options) {
+  _multiPicker(key, label, options, config = {}) {
     const selected = new Set(Array.isArray(this._config?.[key]) ? this._config[key] : []);
     const mergedOptions = [...new Set([...(options || []), ...selected])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const labels = config.labelKey ? this._config?.[config.labelKey] || {} : {};
     const choices = mergedOptions.length
       ? mergedOptions
           .map(
             (value) => `
-              <label class="choice">
-                <input type="checkbox" data-config-multi="${this._escape(key)}" value="${this._escape(value)}" ${selected.has(value) ? "checked" : ""} />
-                <span>${this._escape(value)}</span>
-              </label>
+              <div class="choice ${config.labelKey ? "with-alias" : ""}">
+                <label>
+                  <input type="checkbox" data-config-multi="${this._escape(key)}" value="${this._escape(value)}" ${selected.has(value) ? "checked" : ""} />
+                  <span>${this._escape(value)}</span>
+                </label>
+                ${
+                  config.labelKey
+                    ? `<input class="alias-input" data-config-label="${this._escape(config.labelKey)}" data-label-value="${this._escape(value)}" value="${this._escape(labels[value] || "")}" placeholder="${this._escape(config.placeholder || "Custom name")}" />`
+                    : ""
+                }
+              </div>
             `
           )
           .join("")
@@ -1323,14 +1337,26 @@ class DevicePanelConfigEditor extends HTMLElement {
         .choice {
           align-items: center;
           border-radius: 4px;
-          display: flex;
+          display: grid;
           gap: 8px;
+          grid-template-columns: 1fr;
           min-height: 30px;
           padding: 3px 6px;
         }
 
+        .choice.with-alias {
+          grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr);
+        }
+
         .choice:hover {
           background: var(--secondary-background-color, #f5f7fa);
+        }
+
+        .choice label {
+          align-items: center;
+          display: flex;
+          gap: 8px;
+          min-width: 0;
         }
 
         .choice input {
@@ -1338,10 +1364,18 @@ class DevicePanelConfigEditor extends HTMLElement {
           width: auto;
         }
 
+        .choice .alias-input {
+          min-height: 32px;
+          width: 100%;
+        }
+
         .choice span {
           color: var(--primary-text-color);
           font-size: 13px;
           font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .empty-options {
@@ -1410,6 +1444,23 @@ class DevicePanelConfigEditor extends HTMLElement {
     });
   }
 
+  _wireLabelInputs() {
+    this.shadowRoot.querySelectorAll("[data-config-label]").forEach((element) => {
+      element.addEventListener("change", (event) => {
+        const key = event.currentTarget.dataset.configLabel;
+        const valueKey = event.currentTarget.dataset.labelValue;
+        const label = event.currentTarget.value.trim();
+        const labels = { ...(this._config?.[key] || {}) };
+        if (label) {
+          labels[valueKey] = label;
+        } else {
+          delete labels[valueKey];
+        }
+        this._emitConfig({ ...this._config, [key]: labels });
+      });
+    });
+  }
+
   _cssEscape(value) {
     if (window.CSS?.escape) return window.CSS.escape(value);
     return String(value).replace(/["\\]/g, "\\$&");
@@ -1450,6 +1501,8 @@ class OfflineDevicePanelEditor extends DevicePanelConfigEditor {
       domains: [],
       integrations: [],
       areas: [],
+      domain_labels: {},
+      integration_labels: {},
       force_simple: false,
       persist_filters: true,
       ...config,
@@ -1504,14 +1557,15 @@ class OfflineDevicePanelEditor extends DevicePanelConfigEditor {
         <fieldset>
           <legend>Filters</legend>
           ${this._textarea("offline_states", "Offline states", { rows: 3 })}
-          ${this._multiPicker("domains", "Domains to include", this._domainOptions())}
-          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions())}
+          ${this._multiPicker("domains", "Domains to include", this._domainOptions(), { labelKey: "domain_labels", placeholder: "Custom domain name" })}
+          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions(), { labelKey: "integration_labels", placeholder: "Custom integration name" })}
           ${this._multiPicker("areas", "Areas to include", this._areaOptions())}
         </fieldset>
       </div>
     `;
     this._wireBasicInputs(["offline_states"]);
     this._wireMultiPickers();
+    this._wireLabelInputs();
   }
 
   _renderEditorIfOptionsChanged() {
@@ -1637,6 +1691,8 @@ class DeviceMapPanel extends HTMLElement {
       domains: [],
       integrations: [],
       areas: [],
+      domain_labels: {},
+      integration_labels: {},
       markers: [],
       floors: [],
       persist_layout: true,
@@ -1768,6 +1824,8 @@ class DeviceMapPanel extends HTMLElement {
         offline: isOffline,
         domain,
         integration,
+        displayDomain: this._domainLabel(domain),
+        displayIntegration: this._integrationLabel(integration),
         state: stateObj.state,
         domains: [domain],
         integrations: [integration],
@@ -1792,6 +1850,14 @@ class DeviceMapPanel extends HTMLElement {
     if (entity?.platform) return entity.platform;
     const attr = stateObj.attributes || {};
     return attr.integration || attr.platform || "unknown";
+  }
+
+  _domainLabel(domain) {
+    return this._config.domain_labels?.[domain] || domain;
+  }
+
+  _integrationLabel(integration) {
+    return this._config.integration_labels?.[integration] || integration;
   }
 
   _isOffline(state) {
@@ -1909,7 +1975,7 @@ class DeviceMapPanel extends HTMLElement {
       if (this._filters.area !== "all" && row.areaName !== this._filters.area) return false;
       if (!search) return true;
 
-      const haystack = `${row.name} ${row.entityId} ${row.areaName} ${row.domain} ${row.integration}`.toLowerCase();
+      const haystack = `${row.name} ${row.entityId} ${row.areaName} ${row.domain} ${row.integration} ${row.displayDomain} ${row.displayIntegration}`.toLowerCase();
       return haystack.includes(search);
     });
   }
@@ -2183,8 +2249,8 @@ class DeviceMapPanel extends HTMLElement {
                 ["offline", "Offline"],
                 ["online", "Online"],
               ])}
-              ${this._select("domain", "Type", [["all", "All types"], ...this._options(rows, "domains").map((value) => [value, value])])}
-              ${this._select("integration", "Integration", [["all", "All integrations"], ...this._options(rows, "integrations").map((value) => [value, value])])}
+              ${this._select("domain", "Domain", [["all", "All domains"], ...this._labeledOptions(rows, "domains")])}
+              ${this._select("integration", "Integration", [["all", "All integrations"], ...this._labeledOptions(rows, "integrations")])}
               ${this._select("area", "Area", [["all", "All areas"], ...this._options(rows, "areaName").map((value) => [value, value])])}
               <label>
                 <span>Search</span>
@@ -3160,7 +3226,7 @@ class DeviceMapPanel extends HTMLElement {
         <span class="dot"><ha-icon icon="${this._escape(icon)}"></ha-icon></span>
         <span class="device-text">
           <strong>${this._escape(row.name)}</strong>
-          <small>${this._escape(row.areaName)} - ${this._escape(row.deviceName || row.domain || row.integration)}</small>
+          <small>${this._escape(row.areaName)} - ${this._escape(row.deviceName || row.displayDomain || row.displayIntegration)}</small>
         </span>
         ${
           placed
@@ -4376,6 +4442,8 @@ class DeviceMapPanelEditor extends DevicePanelConfigEditor {
       domains: [],
       integrations: [],
       areas: [],
+      domain_labels: {},
+      integration_labels: {},
       markers: [],
       floors: [],
       persist_layout: true,
@@ -4437,8 +4505,8 @@ class DeviceMapPanelEditor extends DevicePanelConfigEditor {
         <fieldset>
           <legend>Filters</legend>
           ${this._textarea("offline_states", "Offline states", { rows: 3 })}
-          ${this._multiPicker("domains", "Domains to include", this._domainOptions())}
-          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions())}
+          ${this._multiPicker("domains", "Domains to include", this._domainOptions(), { labelKey: "domain_labels", placeholder: "Custom domain name" })}
+          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions(), { labelKey: "integration_labels", placeholder: "Custom integration name" })}
           ${this._multiPicker("areas", "Areas to include", this._areaOptions())}
         </fieldset>
         <fieldset>
@@ -4455,6 +4523,7 @@ class DeviceMapPanelEditor extends DevicePanelConfigEditor {
     this._wireBasicInputs(["offline_states"]);
     this.shadowRoot.querySelector("[data-apply-layout]")?.addEventListener("click", () => this._applyLayoutYaml());
     this._wireMultiPickers();
+    this._wireLabelInputs();
   }
 
   _renderEditorIfOptionsChanged() {
