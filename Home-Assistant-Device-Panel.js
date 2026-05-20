@@ -1,4 +1,4 @@
-const VERSION = "1.0.9";
+const VERSION = "1.1.4";
 class OfflineDevicePanel extends HTMLElement {
   static getConfigElement() {
     return document.createElement("offline-device-panel-editor");
@@ -32,7 +32,7 @@ class OfflineDevicePanel extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = {
+    const nextConfig = {
       title: "Offline Devices",
       show_online: true,
       display_mode: "detailed",
@@ -47,6 +47,7 @@ class OfflineDevicePanel extends HTMLElement {
       persist_filters: true,
       ...config,
     };
+    this._config = nextConfig;
     this._filters = this._normalizedFilters({
       ...this._defaultFilters(),
       ...this._loadFilters(),
@@ -1115,14 +1116,440 @@ class OfflineDevicePanel extends HTMLElement {
 
 customElements.define("offline-device-panel", OfflineDevicePanel);
 
-class OfflineDevicePanelEditor extends HTMLElement {
-  setConfig(config) {
-    this._config = config;
-    this.innerHTML = `
-      <div style="padding: 12px; color: var(--primary-text-color);">
-        Configure this card in YAML for domain, integration, area, and offline state filters.
+class DevicePanelConfigEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = null;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._handleHassChanged?.(hass);
+  }
+
+  _escape(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  _arrayText(value) {
+    return Array.isArray(value) ? value.join("\n") : "";
+  }
+
+  _arrayFromText(value) {
+    return String(value || "")
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  _field(key, label, options = {}) {
+    const type = options.type || "text";
+    const value = this._config?.[key] ?? options.defaultValue ?? "";
+    return `
+      <label>
+        <span>${this._escape(label)}</span>
+        <input data-config-key="${this._escape(key)}" type="${this._escape(type)}" value="${this._escape(value)}" ${options.min !== undefined ? `min="${this._escape(options.min)}"` : ""} ${options.max !== undefined ? `max="${this._escape(options.max)}"` : ""} ${options.step !== undefined ? `step="${this._escape(options.step)}"` : ""} />
+      </label>
+    `;
+  }
+
+  _textarea(key, label, options = {}) {
+    const value = options.value !== undefined ? options.value : this._arrayText(this._config?.[key]);
+    return `
+      <label>
+        <span>${this._escape(label)}</span>
+        <textarea data-config-key="${this._escape(key)}" rows="${this._escape(options.rows || 4)}">${this._escape(value)}</textarea>
+      </label>
+    `;
+  }
+
+  _checkbox(key, label, options = {}) {
+    const checked = this._config?.[key] ?? options.defaultValue;
+    return `
+      <label class="check-row">
+        <input data-config-key="${this._escape(key)}" type="checkbox" ${checked ? "checked" : ""} />
+        <span>${this._escape(label)}</span>
+      </label>
+    `;
+  }
+
+  _select(key, label, options) {
+    const value = this._config?.[key] ?? options[0]?.[0] ?? "";
+    return `
+      <label>
+        <span>${this._escape(label)}</span>
+        <select data-config-key="${this._escape(key)}">
+          ${options.map(([optionValue, text]) => `<option value="${this._escape(optionValue)}" ${value === optionValue ? "selected" : ""}>${this._escape(text)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  _multiPicker(key, label, options) {
+    const selected = new Set(Array.isArray(this._config?.[key]) ? this._config[key] : []);
+    const mergedOptions = [...new Set([...(options || []), ...selected])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const choices = mergedOptions.length
+      ? mergedOptions
+          .map(
+            (value) => `
+              <label class="choice">
+                <input type="checkbox" data-config-multi="${this._escape(key)}" value="${this._escape(value)}" ${selected.has(value) ? "checked" : ""} />
+                <span>${this._escape(value)}</span>
+              </label>
+            `
+          )
+          .join("")
+      : `<div class="empty-options">No options found yet</div>`;
+
+    return `
+      <div class="picker" data-picker="${this._escape(key)}">
+        <div class="picker-head">
+          <span>${this._escape(label)}</span>
+          <button type="button" data-clear-multi="${this._escape(key)}">All</button>
+        </div>
+        <div class="choice-grid">${choices}</div>
       </div>
     `;
+  }
+
+  _editorStyle() {
+    return `
+      <style>
+        .editor {
+          display: grid;
+          gap: 16px;
+          padding: 12px;
+          color: var(--primary-text-color);
+        }
+
+        fieldset {
+          border: 1px solid var(--divider-color, #d8dde6);
+          border-radius: 8px;
+          display: grid;
+          gap: 12px;
+          margin: 0;
+          padding: 12px;
+        }
+
+        legend {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+        }
+
+        label span {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        input, select, textarea {
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #d8dde6);
+          border-radius: 6px;
+          box-sizing: border-box;
+          color: var(--primary-text-color);
+          font: inherit;
+          min-height: 40px;
+          padding: 8px 10px;
+          width: 100%;
+        }
+
+        textarea {
+          font-family: var(--code-font-family, Consolas, Monaco, monospace);
+          min-height: 96px;
+          resize: vertical;
+        }
+
+        .check-row {
+          align-items: center;
+          display: flex;
+          gap: 10px;
+        }
+
+        .check-row input {
+          min-height: auto;
+          width: auto;
+        }
+
+        .picker {
+          display: grid;
+          gap: 8px;
+        }
+
+        .picker-head {
+          align-items: center;
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .picker-head span {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .picker-head button {
+          background: transparent;
+          border: 1px solid var(--divider-color, #d8dde6);
+          color: var(--primary-color, #03a9f4);
+          min-height: 30px;
+          padding: 4px 10px;
+        }
+
+        .choice-grid {
+          border: 1px solid var(--divider-color, #d8dde6);
+          border-radius: 6px;
+          display: grid;
+          gap: 2px;
+          max-height: 190px;
+          overflow: auto;
+          padding: 6px;
+        }
+
+        .choice {
+          align-items: center;
+          border-radius: 4px;
+          display: flex;
+          gap: 8px;
+          min-height: 30px;
+          padding: 3px 6px;
+        }
+
+        .choice:hover {
+          background: var(--secondary-background-color, #f5f7fa);
+        }
+
+        .choice input {
+          min-height: auto;
+          width: auto;
+        }
+
+        .choice span {
+          color: var(--primary-text-color);
+          font-size: 13px;
+          font-weight: 500;
+        }
+
+        .empty-options {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          padding: 8px;
+        }
+
+        button {
+          align-self: start;
+          background: var(--primary-color, #03a9f4);
+          border: 0;
+          border-radius: 6px;
+          color: var(--text-primary-color, #fff);
+          cursor: pointer;
+          font-weight: 700;
+          min-height: 38px;
+          padding: 8px 12px;
+        }
+
+        .error {
+          color: var(--error-color, #db4437);
+          font-size: 12px;
+          font-weight: 700;
+        }
+      </style>
+    `;
+  }
+
+  _wireBasicInputs(arrayKeys = []) {
+    this.shadowRoot.querySelectorAll("[data-config-key]").forEach((element) => {
+      element.addEventListener("change", (event) => {
+        const key = event.currentTarget.dataset.configKey;
+        let value;
+        if (event.currentTarget.type === "checkbox") {
+          value = event.currentTarget.checked;
+        } else if (event.currentTarget.type === "number") {
+          value = Number(event.currentTarget.value);
+        } else if (arrayKeys.includes(key)) {
+          value = this._arrayFromText(event.currentTarget.value);
+        } else {
+          value = event.currentTarget.value;
+        }
+        this._emitConfig({ ...this._config, [key]: value });
+      });
+    });
+  }
+
+  _wireMultiPickers() {
+    this.shadowRoot.querySelectorAll("[data-config-multi]").forEach((element) => {
+      element.addEventListener("change", (event) => {
+        const key = event.currentTarget.dataset.configMulti;
+        const values = [...this.shadowRoot.querySelectorAll(`[data-config-multi="${this._cssEscape(key)}"]:checked`)].map((input) => input.value);
+        this._emitConfig({ ...this._config, [key]: values });
+      });
+    });
+
+    this.shadowRoot.querySelectorAll("[data-clear-multi]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        const key = event.currentTarget.dataset.clearMulti;
+        this.shadowRoot.querySelectorAll(`[data-config-multi="${this._cssEscape(key)}"]`).forEach((input) => {
+          input.checked = false;
+        });
+        this._emitConfig({ ...this._config, [key]: [] });
+      });
+    });
+  }
+
+  _cssEscape(value) {
+    if (window.CSS?.escape) return window.CSS.escape(value);
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  _emitConfig(config) {
+    this._config = config;
+    this._skipNextSetConfigRender = true;
+    window.setTimeout(() => {
+      this._skipNextSetConfigRender = false;
+    }, 500);
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        bubbles: true,
+        composed: true,
+        detail: { config },
+      })
+    );
+  }
+}
+
+class OfflineDevicePanelEditor extends DevicePanelConfigEditor {
+  constructor() {
+    super();
+    this._entities = [];
+    this._areas = [];
+    this._registriesLoaded = false;
+    this._optionsSignature = "";
+  }
+
+  setConfig(config) {
+    const nextConfig = {
+      title: "Offline Devices",
+      show_online: true,
+      display_mode: "detailed",
+      offline_states: ["unavailable", "unknown"],
+      columns: "auto",
+      domains: [],
+      integrations: [],
+      areas: [],
+      force_simple: false,
+      persist_filters: true,
+      ...config,
+    };
+    this._config = nextConfig;
+    if (this._skipNextSetConfigRender) {
+      this._skipNextSetConfigRender = false;
+      return;
+    }
+    this._renderEditor();
+  }
+
+  _handleHassChanged(hass) {
+    this._loadEditorRegistries(hass);
+    this._renderEditorIfOptionsChanged();
+  }
+
+  async _loadEditorRegistries(hass) {
+    if (this._registriesLoaded || !hass?.callWS) return;
+    this._registriesLoaded = true;
+    try {
+      const [entities, areas] = await Promise.all([
+        hass.callWS({ type: "config/entity_registry/list" }),
+        hass.callWS({ type: "config/area_registry/list" }),
+      ]);
+      this._entities = entities || [];
+      this._areas = areas || [];
+      this._renderEditorIfOptionsChanged();
+    } catch (error) {
+      console.warn("offline-device-panel-editor: registry lookup failed", error);
+    }
+  }
+
+  _renderEditor() {
+    if (!this._config) return;
+    this._optionsSignature = this._currentOptionsSignature();
+    this.shadowRoot.innerHTML = `
+      ${this._editorStyle()}
+      <div class="editor">
+        <fieldset>
+          <legend>General</legend>
+          ${this._field("title", "Title")}
+          ${this._select("display_mode", "Card style", [
+            ["detailed", "Detailed"],
+            ["simple", "Simple"],
+          ])}
+          ${this._checkbox("show_online", "Allow online devices", { defaultValue: true })}
+          ${this._checkbox("force_simple", "Force simple mode", { defaultValue: false })}
+          ${this._checkbox("persist_filters", "Remember filters in this browser", { defaultValue: true })}
+          ${this._field("columns", "Columns")}
+        </fieldset>
+        <fieldset>
+          <legend>Filters</legend>
+          ${this._textarea("offline_states", "Offline states", { rows: 3 })}
+          ${this._multiPicker("domains", "Domains to include", this._domainOptions())}
+          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions())}
+          ${this._multiPicker("areas", "Areas to include", this._areaOptions())}
+        </fieldset>
+      </div>
+    `;
+    this._wireBasicInputs(["offline_states"]);
+    this._wireMultiPickers();
+  }
+
+  _renderEditorIfOptionsChanged() {
+    if (!this._config) return;
+    const signature = this._currentOptionsSignature();
+    if (signature === this._optionsSignature) return;
+    this._renderEditor();
+  }
+
+  _currentOptionsSignature() {
+    return JSON.stringify({
+      domains: this._domainOptions(),
+      integrations: this._integrationOptions(),
+      areas: this._areaOptions(),
+    });
+  }
+
+  _domainOptions() {
+    const states = this._hass?.states || {};
+    return [...new Set(Object.keys(states).map((entityId) => entityId.split(".")[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  _integrationOptions() {
+    const states = this._hass?.states || {};
+    const fromRegistry = this._entities.map((entity) => entity.platform).filter(Boolean);
+    const fromStates = Object.values(states)
+      .flatMap((stateObj) => [stateObj.attributes?.integration, stateObj.attributes?.platform])
+      .filter(Boolean);
+    return [...new Set([...fromRegistry, ...fromStates])].sort((a, b) => a.localeCompare(b));
+  }
+
+  _areaOptions() {
+    const states = this._hass?.states || {};
+    const fromRegistry = this._areas.map((area) => area.name || area.area_id || area.id).filter(Boolean);
+    const fromStates = Object.values(states)
+      .flatMap((stateObj) => [stateObj.attributes?.area, stateObj.attributes?.area_id])
+      .filter(Boolean);
+    return [...new Set([...fromRegistry, ...fromStates])].sort((a, b) => a.localeCompare(b));
   }
 }
 
@@ -1204,9 +1631,8 @@ class DeviceMapPanel extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = {
+    const nextConfig = {
       title: "Device Map",
-      image: "",
       offline_states: ["unavailable", "unknown"],
       domains: [],
       integrations: [],
@@ -1214,13 +1640,13 @@ class DeviceMapPanel extends HTMLElement {
       markers: [],
       floors: [],
       persist_layout: true,
-      storage_key: "",
       marker_size: 18,
       show_labels: true,
       show_entity_state: false,
       nudge_step: 1,
       ...config,
     };
+    this._config = nextConfig;
     this._floors = this._normalizedFloors(this._config);
     if (!this._floors.some((floor) => floor.id === this._activeFloorId)) {
       this._activeFloorId = this._floors[0]?.id || "default";
@@ -3933,14 +4359,323 @@ class DeviceMapPanel extends HTMLElement {
 
 customElements.define("device-map-panel", DeviceMapPanel);
 
-class DeviceMapPanelEditor extends HTMLElement {
+class DeviceMapPanelEditor extends DevicePanelConfigEditor {
+  constructor() {
+    super();
+    this._entities = [];
+    this._areas = [];
+    this._registriesLoaded = false;
+    this._optionsSignature = "";
+  }
+
   setConfig(config) {
-    this._config = config;
-    this.innerHTML = `
-      <div style="padding: 12px; color: var(--primary-text-color);">
-        Configure this card in YAML with an image or floors, then drag devices from the sidebar onto the drawing.
+    const nextConfig = {
+      title: "Device Map",
+      image: "",
+      offline_states: ["unavailable", "unknown"],
+      domains: [],
+      integrations: [],
+      areas: [],
+      markers: [],
+      floors: [],
+      persist_layout: true,
+      storage_key: "",
+      marker_size: 18,
+      show_labels: true,
+      show_entity_state: false,
+      nudge_step: 1,
+      ...config,
+    };
+    this._config = nextConfig;
+    if (this._skipNextSetConfigRender) {
+      this._skipNextSetConfigRender = false;
+      return;
+    }
+    this._layoutError = "";
+    this._renderEditor();
+  }
+
+  _handleHassChanged(hass) {
+    this._loadEditorRegistries(hass);
+    this._renderEditorIfOptionsChanged();
+  }
+
+  async _loadEditorRegistries(hass) {
+    if (this._registriesLoaded || !hass?.callWS) return;
+    this._registriesLoaded = true;
+    try {
+      const [entities, areas] = await Promise.all([
+        hass.callWS({ type: "config/entity_registry/list" }),
+        hass.callWS({ type: "config/area_registry/list" }),
+      ]);
+      this._entities = entities || [];
+      this._areas = areas || [];
+      this._renderEditorIfOptionsChanged();
+    } catch (error) {
+      console.warn("device-map-panel-editor: registry lookup failed", error);
+    }
+  }
+
+  _renderEditor() {
+    if (!this._config) return;
+    this._optionsSignature = this._currentOptionsSignature();
+    this.shadowRoot.innerHTML = `
+      ${this._editorStyle()}
+      <div class="editor">
+        <fieldset>
+          <legend>General</legend>
+          ${this._field("title", "Title")}
+          ${this._checkbox("persist_layout", "Remember marker layout in this browser", { defaultValue: true })}
+        </fieldset>
+        <fieldset>
+          <legend>Display</legend>
+          ${this._field("marker_size", "Marker size", { type: "number", min: 12, max: 48, step: 1 })}
+          ${this._field("nudge_step", "Nudge step", { type: "number", min: 0.05, max: 10, step: 0.05 })}
+          ${this._checkbox("show_labels", "Show marker names", { defaultValue: true })}
+          ${this._checkbox("show_entity_state", "Show entity state styling", { defaultValue: false })}
+        </fieldset>
+        <fieldset>
+          <legend>Filters</legend>
+          ${this._textarea("offline_states", "Offline states", { rows: 3 })}
+          ${this._multiPicker("domains", "Domains to include", this._domainOptions())}
+          ${this._multiPicker("integrations", "Integrations to include", this._integrationOptions())}
+          ${this._multiPicker("areas", "Areas to include", this._areaOptions())}
+        </fieldset>
+        <fieldset>
+          <legend>Floors and Markers</legend>
+          <label>
+            <span>Floors and markers</span>
+            <textarea data-layout-yaml rows="12">${this._escape(this._layoutYamlFromConfig(this._config))}</textarea>
+          </label>
+          <button type="button" data-apply-layout>Apply floors and markers</button>
+          <div class="error" data-layout-error></div>
+        </fieldset>
       </div>
     `;
+    this._wireBasicInputs(["offline_states"]);
+    this.shadowRoot.querySelector("[data-apply-layout]")?.addEventListener("click", () => this._applyLayoutYaml());
+    this._wireMultiPickers();
+  }
+
+  _renderEditorIfOptionsChanged() {
+    if (!this._config) return;
+    const signature = this._currentOptionsSignature();
+    if (signature === this._optionsSignature) return;
+    this._renderEditor();
+  }
+
+  _currentOptionsSignature() {
+    return JSON.stringify({
+      domains: this._domainOptions(),
+      integrations: this._integrationOptions(),
+      areas: this._areaOptions(),
+    });
+  }
+
+  _domainOptions() {
+    const states = this._hass?.states || {};
+    return [...new Set(Object.keys(states).map((entityId) => entityId.split(".")[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  _integrationOptions() {
+    const states = this._hass?.states || {};
+    const fromRegistry = this._entities.map((entity) => entity.platform).filter(Boolean);
+    const fromStates = Object.values(states)
+      .flatMap((stateObj) => [stateObj.attributes?.integration, stateObj.attributes?.platform])
+      .filter(Boolean);
+    return [...new Set([...fromRegistry, ...fromStates])].sort((a, b) => a.localeCompare(b));
+  }
+
+  _areaOptions() {
+    const states = this._hass?.states || {};
+    const fromRegistry = this._areas.map((area) => area.name || area.area_id || area.id).filter(Boolean);
+    const fromStates = Object.values(states)
+      .flatMap((stateObj) => [stateObj.attributes?.area, stateObj.attributes?.area_id])
+      .filter(Boolean);
+    return [...new Set([...fromRegistry, ...fromStates])].sort((a, b) => a.localeCompare(b));
+  }
+
+  _layoutYamlFromConfig(config) {
+    if (Array.isArray(config.floors) && config.floors.length) {
+      return [
+        "floors:",
+        ...config.floors.flatMap((floor) => [
+          `  - id: ${this._yamlScalar(floor.id || "")}`,
+          `    name: ${this._yamlScalar(floor.name || floor.title || "")}`,
+          `    image: ${this._yamlScalar(floor.image || "")}`,
+          ...(Array.isArray(floor.markers) && floor.markers.length
+            ? [
+                "    markers:",
+                ...floor.markers.flatMap((marker) => this._markerYaml(marker, 6)),
+              ]
+            : ["    markers: []"]),
+        ]),
+      ].join("\n");
+    }
+
+    if (config.image || (Array.isArray(config.markers) && config.markers.length)) {
+      return [
+        "floors:",
+        "  - id: default",
+        `    name: ${this._yamlScalar(config.title || "Floor")}`,
+        `    image: ${this._yamlScalar(config.image || "")}`,
+        ...(Array.isArray(config.markers) && config.markers.length
+          ? [
+              "    markers:",
+              ...config.markers.flatMap((marker) => this._markerYaml(marker, 6)),
+            ]
+          : ["    markers: []"]),
+      ].join("\n");
+    }
+
+    return ["floors:", "  - id: default", `    name: ${this._yamlScalar(config.title || "Floor")}`, '    image: ""', "    markers: []"].join("\n");
+  }
+
+  _markerYaml(marker, indent) {
+    const space = " ".repeat(indent);
+    const child = " ".repeat(indent + 2);
+    return [
+      `${space}- key: ${this._yamlScalar(marker.key || marker.entity || marker.device || "")}`,
+      `${child}entity: ${this._yamlScalar(marker.entity || marker.entityId || marker.key || "")}`,
+      ...(marker.name ? [`${child}name: ${this._yamlScalar(marker.name)}`] : []),
+      ...(marker.icon ? [`${child}icon: ${this._yamlScalar(marker.icon)}`] : []),
+      `${child}x: ${Number(marker.x || 0).toFixed(2)}`,
+      `${child}y: ${Number(marker.y || 0).toFixed(2)}`,
+    ];
+  }
+
+  _yamlScalar(value) {
+    const text = String(value ?? "");
+    if (!text) return '""';
+    if (/^[A-Za-z0-9_.:/@+-]+$/.test(text)) return text;
+    return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+
+  _applyLayoutYaml() {
+    const textarea = this.shadowRoot.querySelector("[data-layout-yaml]");
+    const error = this.shadowRoot.querySelector("[data-layout-error]");
+    try {
+      const layout = this._parseLayoutYaml(textarea?.value || "");
+      const nextConfig = { ...this._config };
+      if (layout.floors) {
+        nextConfig.floors = layout.floors;
+        delete nextConfig.markers;
+        delete nextConfig.image;
+      } else {
+        nextConfig.markers = layout.markers || [];
+        delete nextConfig.floors;
+      }
+      if (error) error.textContent = "";
+      this._emitConfig(nextConfig);
+    } catch (parseError) {
+      if (error) error.textContent = parseError.message || "Floors and markers YAML could not be parsed.";
+    }
+  }
+
+  _parseLayoutYaml(text) {
+    const value = String(text || "").trim();
+    if (!value) return { markers: [] };
+
+    if (window.jsyaml?.load) {
+      const parsed = window.jsyaml.load(value) || {};
+      if (Array.isArray(parsed.floors)) return { floors: parsed.floors };
+      if (Array.isArray(parsed.markers)) return { markers: parsed.markers };
+      throw new Error("Use a top-level markers: or floors: block.");
+    }
+
+    return this._parseSimpleLayoutYaml(value);
+  }
+
+  _parseSimpleLayoutYaml(text) {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\t/g, "  "))
+      .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    const root = lines[0]?.trim();
+
+    if (root === "markers: []") return { markers: [] };
+    if (root === "floors: []") return { floors: [] };
+    if (root === "markers:") {
+      return { markers: this._parseYamlObjectList(lines, 1, 2).items };
+    }
+    if (root === "floors:") {
+      return { floors: this._parseYamlObjectList(lines, 1, 2).items };
+    }
+
+    throw new Error("Use a top-level markers: or floors: block.");
+  }
+
+  _parseYamlObjectList(lines, startIndex, itemIndent) {
+    const items = [];
+    let index = startIndex;
+
+    while (index < lines.length) {
+      const line = lines[index];
+      const indent = this._yamlIndent(line);
+      const trimmed = line.trim();
+      if (indent < itemIndent) break;
+      if (indent !== itemIndent || !trimmed.startsWith("- ")) {
+        index += 1;
+        continue;
+      }
+
+      const item = {};
+      this._assignYamlPair(item, trimmed.slice(2));
+      index += 1;
+
+      while (index < lines.length) {
+        const childLine = lines[index];
+        const childIndent = this._yamlIndent(childLine);
+        const childTrimmed = childLine.trim();
+        if (childIndent <= itemIndent && childTrimmed.startsWith("- ")) break;
+        if (childIndent < itemIndent + 2) break;
+
+        if (childIndent === itemIndent + 2 && childTrimmed === "markers: []") {
+          item.markers = [];
+          index += 1;
+          continue;
+        }
+
+        if (childIndent === itemIndent + 2 && childTrimmed === "markers:") {
+          const parsed = this._parseYamlObjectList(lines, index + 1, itemIndent + 4);
+          item.markers = parsed.items;
+          index = parsed.index;
+          continue;
+        }
+
+        if (childIndent === itemIndent + 2) {
+          this._assignYamlPair(item, childTrimmed);
+        }
+        index += 1;
+      }
+
+      items.push(item);
+    }
+
+    return { items, index };
+  }
+
+  _assignYamlPair(target, text) {
+    const match = String(text || "").match(/^([^:]+):(?:\s*(.*))?$/);
+    if (!match) return;
+    const key = match[1].trim();
+    const value = match[2] ?? "";
+    target[key] = this._parseYamlScalar(value);
+  }
+
+  _parseYamlScalar(value) {
+    const text = String(value ?? "").trim();
+    if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+      return text.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    }
+    if (text === "true") return true;
+    if (text === "false") return false;
+    if (text !== "" && Number.isFinite(Number(text))) return Number(text);
+    return text;
+  }
+
+  _yamlIndent(line) {
+    return String(line || "").match(/^ */)?.[0].length || 0;
   }
 }
 

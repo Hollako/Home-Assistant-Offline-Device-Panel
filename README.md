@@ -30,7 +30,7 @@ type: module
 
 The HACS release uses a single JavaScript file, so updates only need to refresh `Home-Assistant-Device-Panel.js`.
 
-7. Add a manual Lovelace card:
+7. Add the card from the Lovelace card picker and configure the main options in the visual editor. You can also add a manual Lovelace card:
 
 ```yaml
 type: custom:offline-device-panel
@@ -64,6 +64,14 @@ offline_states:
   - unavailable
   - unknown
 ```
+
+## UI Configuration
+
+Both cards include a visual Lovelace editor for the common options, including title, display mode, force simple mode, online visibility, display settings, and offline states.
+
+Domains, integrations, and areas can be selected from checkbox lists populated from the current Home Assistant entities and registries. Leaving a list empty means the card includes all values for that option.
+
+The Device Map Panel keeps floor images and marker layout in a YAML field inside the visual editor. Use **Floors and Markers** for the `floors:` layout, then apply it from the editor. You can still use the map's **Export YAML** tool after placing markers.
 
 ## Device Map Panel
 
@@ -164,15 +172,6 @@ floors:
         icon: mdi:lightbulb
         x: 42.50
         y: 58.00
-```
-
-If you use multiple map cards with the same title on the same dashboard, set a unique `storage_key` for each one:
-
-```yaml
-type: custom:device-map-panel
-title: First Floor
-image: /local/first-floor.png
-storage_key: first-floor-map
 ```
 
 To always load marker positions from YAML only, disable browser layout persistence:
