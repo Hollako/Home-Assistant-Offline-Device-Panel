@@ -1,4 +1,4 @@
-const VERSION = "1.1.6";
+const VERSION = "1.1.8";
 class OfflineDevicePanel extends HTMLElement {
   static getConfigElement() {
     return document.createElement("offline-device-panel-editor");
@@ -58,7 +58,7 @@ class OfflineDevicePanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._loadRegistries(hass);
-    this._render();
+    this._render({ preserveScroll: true });
   }
 
   getCardSize() {
@@ -282,12 +282,6 @@ class OfflineDevicePanel extends HTMLElement {
       .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
   }
 
-  _labeledOptions(rows, key) {
-    return this._options(rows, key)
-      .map((value) => [value, key === "domains" ? this._domainLabel(value) : key === "integrations" ? this._integrationLabel(value) : value])
-      .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
-  }
-
   _groupByArea(rows) {
     return rows.reduce((groups, row) => {
       const key = row.areaName || "No area";
@@ -436,7 +430,7 @@ class OfflineDevicePanel extends HTMLElement {
 
     if (preserveScroll || activeFilter) {
       requestAnimationFrame(() => {
-        if (preserveScroll) this._restoreScroll(scrollSnapshots);
+        if (preserveScroll) this._restoreScrollSoon(scrollSnapshots);
         if (activeFilter) {
           const restoredInput = this.shadowRoot.querySelector(`[data-filter="${this._cssEscape(activeFilter)}"]`);
           restoredInput?.focus();
@@ -503,6 +497,12 @@ class OfflineDevicePanel extends HTMLElement {
     for (const snapshot of snapshots) {
       snapshot.element.scrollTo(snapshot.left, snapshot.top);
     }
+  }
+
+  _restoreScrollSoon(snapshots) {
+    this._restoreScroll(snapshots);
+    requestAnimationFrame(() => this._restoreScroll(snapshots));
+    window.setTimeout(() => this._restoreScroll(snapshots), 80);
   }
 
   _statusOptions() {
@@ -1722,7 +1722,7 @@ class DeviceMapPanel extends HTMLElement {
     this._hass = hass;
     this._loadRegistries(hass);
     if (this._isControlActive()) return;
-    this._render();
+    this._render({ preservePageScroll: true });
   }
 
   getCardSize() {
@@ -2029,6 +2029,55 @@ class DeviceMapPanel extends HTMLElement {
     return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
+  _labeledOptions(rows, key) {
+    return this._options(rows, key)
+      .map((value) => [value, key === "domains" ? this._domainLabel(value) : key === "integrations" ? this._integrationLabel(value) : value])
+      .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
+  }
+
+  _scrollSnapshots() {
+    const snapshots = [];
+    const seen = new Set();
+    const add = (element) => {
+      if (!element || seen.has(element)) return;
+      seen.add(element);
+      snapshots.push({
+        element,
+        left: element.scrollLeft,
+        top: element.scrollTop,
+      });
+    };
+
+    add(document.scrollingElement || document.documentElement);
+
+    let node = this;
+    while (node) {
+      if (node instanceof Element) {
+        const style = getComputedStyle(node);
+        const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight;
+        const canScrollX = /(auto|scroll|overlay)/.test(style.overflowX) && node.scrollWidth > node.clientWidth;
+        if (canScrollY || canScrollX) add(node);
+      }
+
+      const root = node.getRootNode?.();
+      node = node.parentElement || root?.host || null;
+    }
+
+    return snapshots;
+  }
+
+  _restoreScroll(snapshots) {
+    for (const snapshot of snapshots) {
+      snapshot.element.scrollTo(snapshot.left, snapshot.top);
+    }
+  }
+
+  _restoreScrollSoon(snapshots) {
+    this._restoreScroll(snapshots);
+    requestAnimationFrame(() => this._restoreScroll(snapshots));
+    window.setTimeout(() => this._restoreScroll(snapshots), 80);
+  }
+
   _configMarkers() {
     return this._markersFromList(this._config.markers || []);
   }
@@ -2204,9 +2253,10 @@ class DeviceMapPanel extends HTMLElement {
     };
   }
 
-  _render() {
+  _render(options = {}) {
     if (!this.shadowRoot) return;
 
+    const pageScrollSnapshots = options.preservePageScroll ? this._scrollSnapshots() : [];
     this._captureMapScroll();
     this._captureMapAlertScroll();
     this._captureDeviceListScroll();
@@ -2385,6 +2435,7 @@ class DeviceMapPanel extends HTMLElement {
 
     this._attachEvents();
     requestAnimationFrame(() => {
+      if (options.preservePageScroll) this._restoreScrollSoon(pageScrollSnapshots);
       if (this._pendingMarkerFocus) {
         this._focusMarker(this._pendingMarkerFocus);
         this._pendingMarkerFocus = null;
